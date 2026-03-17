@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import math
 import torch
 import logging
@@ -551,7 +552,187 @@ async def health():
         "device": DEVICE,
         "observer": OBSERVER_MODEL,
         "performer": PERFORMER_MODEL,
+        "threshold": THRESHOLD,
+        "low_threshold": LOW_THRESHOLD,
     }
+
+
+# --- Calibration System ---
+CALIBRATION_FILE = Path(os.getenv("CALIBRATION_FILE", "/models/calibration.json"))
+# Fallback for non-docker runs
+if not CALIBRATION_FILE.parent.exists():
+    CALIBRATION_FILE = Path("calibration.json")
+
+
+def load_calibration() -> dict:
+    if CALIBRATION_FILE.exists():
+        return json.loads(CALIBRATION_FILE.read_text())
+    return {"samples": [], "computed_threshold": None, "computed_low_threshold": None}
+
+
+def save_calibration(data: dict):
+    CALIBRATION_FILE.write_text(json.dumps(data, indent=2))
+
+
+class CalibrationSample(BaseModel):
+    text: str
+    label: str  # "human" or "ai"
+    name: str = ""  # optional label for the sample
+
+
+class CalibrationResult(BaseModel):
+    sample_count: int
+    human_scores: list[float]
+    ai_scores: list[float]
+    human_mean: float | None
+    human_stdev: float | None
+    ai_mean: float | None
+    ai_stdev: float | None
+    computed_threshold: float | None
+    computed_low_threshold: float | None
+    separation: float | None  # gap between distributions
+    active_threshold: float
+    active_low_threshold: float
+
+
+@app.post("/api/calibrate/add")
+async def calibrate_add(sample: CalibrationSample):
+    """Add a labeled sample to the calibration set and score it."""
+    if sample.label not in ("human", "ai"):
+        return {"error": "label must be 'human' or 'ai'"}
+    if len(sample.text.strip()) < 50:
+        return {"error": "sample must be at least 50 characters"}
+
+    score = compute_score(sample.text.strip())
+    cal = load_calibration()
+    cal["samples"].append({
+        "label": sample.label,
+        "name": sample.name or f"{sample.label}_{len(cal['samples']) + 1}",
+        "score": round(score, 6),
+        "text_preview": sample.text.strip()[:100],
+        "text_length": len(sample.text.strip()),
+    })
+    save_calibration(cal)
+
+    return {
+        "score": round(score, 4),
+        "label": sample.label,
+        "name": cal["samples"][-1]["name"],
+        "total_samples": len(cal["samples"]),
+    }
+
+
+@app.get("/api/calibrate/status", response_model=CalibrationResult)
+async def calibrate_status():
+    """Get current calibration state and computed thresholds."""
+    cal = load_calibration()
+    human_scores = [s["score"] for s in cal["samples"] if s["label"] == "human"]
+    ai_scores = [s["score"] for s in cal["samples"] if s["label"] == "ai"]
+
+    h_mean = statistics.mean(human_scores) if human_scores else None
+    h_std = statistics.stdev(human_scores) if len(human_scores) > 1 else None
+    a_mean = statistics.mean(ai_scores) if ai_scores else None
+    a_std = statistics.stdev(ai_scores) if len(ai_scores) > 1 else None
+
+    computed_threshold = None
+    computed_low = None
+    separation = None
+
+    if h_mean is not None and a_mean is not None:
+        # Optimal threshold sits between the two distributions
+        # Weight it toward the AI side to minimize false negatives
+        # (better to flag human text than miss AI text)
+        separation = h_mean - a_mean
+
+        if separation > 0:
+            # Good separation — threshold between distributions
+            # Place it at 40% from AI mean toward human mean (biased toward catching AI)
+            computed_threshold = a_mean + (separation * 0.4)
+            # Low threshold = 1 stdev below AI mean (high confidence AI)
+            computed_low = a_mean - (a_std if a_std else separation * 0.1)
+        else:
+            # Distributions overlap or are inverted — use midpoint
+            computed_threshold = (h_mean + a_mean) / 2
+            computed_low = min(h_mean, a_mean) - 0.02
+
+        computed_threshold = round(computed_threshold, 4)
+        computed_low = round(computed_low, 4)
+
+    return CalibrationResult(
+        sample_count=len(cal["samples"]),
+        human_scores=sorted(human_scores),
+        ai_scores=sorted(ai_scores),
+        human_mean=round(h_mean, 4) if h_mean else None,
+        human_stdev=round(h_std, 4) if h_std else None,
+        ai_mean=round(a_mean, 4) if a_mean else None,
+        ai_stdev=round(a_std, 4) if a_std else None,
+        computed_threshold=computed_threshold,
+        computed_low_threshold=computed_low,
+        separation=round(separation, 4) if separation is not None else None,
+        active_threshold=THRESHOLD,
+        active_low_threshold=LOW_THRESHOLD,
+    )
+
+
+@app.post("/api/calibrate/apply")
+async def calibrate_apply():
+    """Apply computed thresholds from calibration data."""
+    global THRESHOLD, LOW_THRESHOLD, SUSPICIOUS_MARGIN
+    cal = load_calibration()
+    human_scores = [s["score"] for s in cal["samples"] if s["label"] == "human"]
+    ai_scores = [s["score"] for s in cal["samples"] if s["label"] == "ai"]
+
+    if not human_scores or not ai_scores:
+        return {"error": "Need at least 1 human and 1 AI sample to calibrate"}
+
+    h_mean = statistics.mean(human_scores)
+    a_mean = statistics.mean(ai_scores)
+    a_std = statistics.stdev(ai_scores) if len(ai_scores) > 1 else 0.01
+    separation = h_mean - a_mean
+
+    if separation > 0:
+        new_threshold = a_mean + (separation * 0.4)
+        new_low = a_mean - (a_std if a_std else separation * 0.1)
+    else:
+        new_threshold = (h_mean + a_mean) / 2
+        new_low = min(h_mean, a_mean) - 0.02
+
+    THRESHOLD = round(new_threshold, 4)
+    LOW_THRESHOLD = round(max(new_low, 0.5), 4)  # floor at 0.5
+
+    cal["computed_threshold"] = THRESHOLD
+    cal["computed_low_threshold"] = LOW_THRESHOLD
+    save_calibration(cal)
+
+    return {
+        "applied": True,
+        "threshold": THRESHOLD,
+        "low_threshold": LOW_THRESHOLD,
+        "separation": round(separation, 4),
+        "human_mean": round(h_mean, 4),
+        "ai_mean": round(a_mean, 4),
+    }
+
+
+@app.post("/api/calibrate/reset")
+async def calibrate_reset():
+    """Clear all calibration data and reset to paper defaults."""
+    global THRESHOLD, LOW_THRESHOLD
+    THRESHOLD = 0.9015
+    LOW_THRESHOLD = 0.8536
+    save_calibration({"samples": [], "computed_threshold": None, "computed_low_threshold": None})
+    return {"reset": True, "threshold": THRESHOLD, "low_threshold": LOW_THRESHOLD}
+
+
+@app.delete("/api/calibrate/sample/{index}")
+async def calibrate_delete_sample(index: int):
+    """Remove a specific calibration sample by index."""
+    cal = load_calibration()
+    if 0 <= index < len(cal["samples"]):
+        removed = cal["samples"].pop(index)
+        save_calibration(cal)
+        return {"removed": removed["name"], "remaining": len(cal["samples"])}
+    return {"error": "invalid index"}
 
 
 @app.get("/", response_class=HTMLResponse)
