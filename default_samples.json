@@ -1,0 +1,65 @@
+{
+  "description": "Default calibration samples. Scored automatically on first startup to set domain-appropriate thresholds for the loaded model pair.",
+  "samples": [
+    {
+      "label": "human",
+      "name": "student-essay-nursing",
+      "text": "I'll be honest, I didn't really get what clinical reasoning meant until I was standing in a patient's room trying to figure out what to do next. The thing that surprised me in clinical was finding out how many older adults get readmitted for COPD, and how much of that is preventable if someone just takes the time to educate them before they go home. That reality makes every cardiac assessment feel like it actually matters, because it does."
+    },
+    {
+      "label": "human",
+      "name": "student-reflection-personal",
+      "text": "I'm still pretty early in learning cardiac care, but I'm working at it. In rotations I practice reading ECGs, looking for ST changes, and communicating what I find using SBAR. I want to be the student who notices something off before the monitor starts beeping. That doesn't happen overnight though. It takes a lot of practice. Sometimes you can tell more from the look on someone's face than from their vital signs."
+    },
+    {
+      "label": "human",
+      "name": "forum-post-casual",
+      "text": "honestly the whole thing is kind of a mess. I spent three hours debugging what turned out to be a missing semicolon, which, whatever, that happens. But then the deployment broke because someone pushed to main without running the tests first. We really need to set up branch protection or something because this is the third time this month. At least the client hasn't noticed yet, knock on wood."
+    },
+    {
+      "label": "human",
+      "name": "journalism-excerpt",
+      "text": "The fire started around 2 a.m. in a storage unit behind the restaurant. By the time the first trucks arrived, the roof was already gone. Nobody was inside — the owner had closed up at midnight and driven home. He found out from a neighbor who called him at 3. He sat on the curb across the street and watched the rest of it burn. Twenty-two years. That's how long he'd been open."
+    },
+    {
+      "label": "human",
+      "name": "academic-rough-draft",
+      "text": "The medication error rates in the ICU have gone down since we started using the barcode system but I'm not totally sure the data tells the whole story. Nurses I talked to said they sometimes override the scanner when it's acting up, which means those doses aren't being tracked properly. So the numbers look better but we might be missing errors that are still happening. I need to figure out a way to capture the override rate separately."
+    },
+    {
+      "label": "human",
+      "name": "email-professional",
+      "text": "Hey Sarah, I wanted to follow up on the meeting from Thursday. I think we're overcomplicating the onboarding process — new hires don't need access to all four systems on day one. Can we start them with just the patient portal and add the rest after their first week? Also, Tim mentioned the printer on 3rd floor is broken again. Not sure if that's your department or facilities but figured I'd pass it along."
+    },
+    {
+      "label": "ai",
+      "name": "chatgpt-nursing-essay",
+      "text": "Chronic Obstructive Pulmonary Disease (COPD) represents a significant challenge in modern healthcare, affecting millions of individuals worldwide. As a progressive respiratory condition, COPD demands comprehensive nursing interventions that address both the physiological and psychosocial dimensions of patient care. Effective management strategies encompass pharmacological treatments, pulmonary rehabilitation programs, and patient education initiatives designed to enhance self-management capabilities and improve overall quality of life."
+    },
+    {
+      "label": "ai",
+      "name": "chatgpt-reflection",
+      "text": "Throughout my clinical rotations, I have gained invaluable experience in patient assessment and care planning. The opportunity to work alongside experienced nurses has provided me with a deeper understanding of the complexities involved in healthcare delivery. I have learned the importance of effective communication, critical thinking, and evidence-based practice in ensuring optimal patient outcomes. These experiences have reinforced my commitment to the nursing profession and my dedication to providing high-quality, compassionate care."
+    },
+    {
+      "label": "ai",
+      "name": "chatgpt-academic",
+      "text": "The implementation of electronic health records has fundamentally transformed the healthcare landscape, offering numerous benefits including improved documentation accuracy, enhanced interdisciplinary communication, and streamlined workflow processes. However, these technological advancements also present significant challenges, particularly regarding user adoption, data security concerns, and the potential for technology-induced errors. Healthcare organizations must carefully balance the pursuit of digital innovation with the imperative to maintain patient safety and clinical efficiency."
+    },
+    {
+      "label": "ai",
+      "name": "claude-analysis",
+      "text": "When examining the effectiveness of telehealth interventions in chronic disease management, several key factors emerge. First, patient engagement levels tend to correlate strongly with health literacy and technological proficiency. Second, the quality of the provider-patient relationship, even in virtual settings, significantly influences treatment adherence. Third, the integration of remote monitoring devices provides clinicians with continuous data streams that enable more proactive and personalized care approaches."
+    },
+    {
+      "label": "ai",
+      "name": "chatgpt-professional",
+      "text": "In today's rapidly evolving healthcare environment, nurses play a crucial role in ensuring patient safety and delivering evidence-based care. The integration of technology into clinical practice has created new opportunities for improving patient outcomes while simultaneously presenting unique challenges that require ongoing education and adaptation. By embracing these changes and maintaining a commitment to continuous professional development, nurses can effectively navigate the complexities of modern healthcare delivery."
+    },
+    {
+      "label": "ai",
+      "name": "humanized-ai-sample",
+      "text": "Working with COPD patients has really opened my eyes to how important discharge education is. The statistics show that readmission rates are alarmingly high, and much of this could be prevented with proper patient education. When nurses take the time to thoroughly explain medication regimens, breathing techniques, and warning signs to watch for, patients are significantly more empowered to manage their condition at home. This holistic approach to care represents a fundamental shift in how we think about the continuum of patient support."
+    }
+  ]
+}

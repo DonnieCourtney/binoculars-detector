@@ -54,9 +54,71 @@ def load_models():
     log.info("Models loaded successfully")
 
 
+def auto_calibrate():
+    """Run default calibration samples on first startup if no calibration exists."""
+    cal = load_calibration()
+    if cal["samples"]:
+        log.info(f"Existing calibration found ({len(cal['samples'])} samples), skipping auto-calibrate")
+        return
+
+    default_file = Path("default_samples.json")
+    if not default_file.exists():
+        log.warning("No default_samples.json found, using paper thresholds")
+        return
+
+    log.info("Running default calibration (first startup)...")
+    defaults = json.loads(default_file.read_text())
+    samples = defaults.get("samples", [])
+
+    for i, sample in enumerate(samples):
+        text = sample["text"].strip()
+        score = compute_score(text)
+        cal["samples"].append({
+            "label": sample["label"],
+            "name": sample.get("name", f"{sample['label']}_{i+1}"),
+            "score": round(score, 6),
+            "text_preview": text[:100],
+            "text_length": len(text),
+        })
+        log.info(f"  [{sample['label'].upper():5s}] {sample.get('name', '?'):30s} → {score:.4f}")
+
+    # Compute and apply thresholds
+    human_scores = [s["score"] for s in cal["samples"] if s["label"] == "human"]
+    ai_scores = [s["score"] for s in cal["samples"] if s["label"] == "ai"]
+
+    if human_scores and ai_scores:
+        global THRESHOLD, LOW_THRESHOLD
+        h_mean = statistics.mean(human_scores)
+        a_mean = statistics.mean(ai_scores)
+        a_std = statistics.stdev(ai_scores) if len(ai_scores) > 1 else 0.01
+        separation = h_mean - a_mean
+
+        if separation > 0:
+            THRESHOLD = round(a_mean + (separation * 0.4), 4)
+            LOW_THRESHOLD = round(max(a_mean - a_std, 0.5), 4)
+        else:
+            THRESHOLD = round((h_mean + a_mean) / 2, 4)
+            LOW_THRESHOLD = round(min(h_mean, a_mean) - 0.02, 4)
+
+        cal["computed_threshold"] = THRESHOLD
+        cal["computed_low_threshold"] = LOW_THRESHOLD
+        save_calibration(cal)
+
+        log.info(f"Auto-calibration complete:")
+        log.info(f"  Human mean: {h_mean:.4f} (n={len(human_scores)})")
+        log.info(f"  AI mean:    {a_mean:.4f} (n={len(ai_scores)})")
+        log.info(f"  Separation: {separation:.4f}")
+        log.info(f"  Threshold:  {THRESHOLD}")
+        log.info(f"  Low thresh: {LOW_THRESHOLD}")
+    else:
+        save_calibration(cal)
+        log.warning("Auto-calibration scored samples but couldn't compute thresholds")
+
+
 @app.on_event("startup")
 async def startup():
     load_models()
+    auto_calibrate()
 
 
 # --- Binoculars core ---
@@ -716,11 +778,10 @@ async def calibrate_apply():
 
 @app.post("/api/calibrate/reset")
 async def calibrate_reset():
-    """Clear all calibration data and reset to paper defaults."""
+    """Clear calibration data and re-run default calibration."""
     global THRESHOLD, LOW_THRESHOLD
-    THRESHOLD = 0.9015
-    LOW_THRESHOLD = 0.8536
     save_calibration({"samples": [], "computed_threshold": None, "computed_low_threshold": None})
+    auto_calibrate()
     return {"reset": True, "threshold": THRESHOLD, "low_threshold": LOW_THRESHOLD}
 
 
