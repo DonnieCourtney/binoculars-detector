@@ -3,373 +3,734 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Binoculars — AI Text Detector</title>
+<title>BINOCULARS — Forensic Text Analysis</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap');
 
   :root {
-    --bg: #0a0a0a;
-    --surface: #111;
-    --surface2: #1a1a1a;
-    --border: #2a2a2a;
-    --border-light: #333;
-    --text: #e0e0e0;
-    --text-dim: #777;
-    --text-xdim: #555;
-    --accent: #00ff88;
-    --accent-dim: #00cc6a;
-    --danger: #ff4444;
-    --danger-dim: #cc3333;
-    --warn: #ffaa00;
-    --warn-dim: #cc8800;
-    --human: #00ff88;
-    --ai: #ff4444;
-    --borderline: #ffaa00;
+    --bg: #08090a;
+    --surface: #0d0e10;
+    --surface-raised: #111214;
+    --surface-inset: #0a0b0c;
+    --border: #1e2024;
+    --border-strong: #2a2d33;
+    --border-glow: #333740;
+
+    --text: #c8cbd2;
+    --text-bright: #e8eaef;
+    --text-dim: #6b7080;
+    --text-xdim: #3e4250;
+
+    /* Phosphor amber — the primary instrument accent */
+    --phosphor: #e8a832;
+    --phosphor-bright: #f0c050;
+    --phosphor-dim: #9e7020;
+    --phosphor-glow: rgba(232, 168, 50, 0.08);
+    --phosphor-glow-strong: rgba(232, 168, 50, 0.15);
+
+    /* Signal colors */
+    --clear: #34d97b;
+    --clear-dim: rgba(52, 217, 123, 0.12);
+    --alert: #e84545;
+    --alert-dim: rgba(232, 69, 69, 0.1);
+    --caution: #e8a832;
+    --caution-dim: rgba(232, 168, 50, 0.1);
+
+    /* Scanline overlay */
+    --scanline: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.03) 2px,
+      rgba(0, 0, 0, 0.03) 4px
+    );
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
+  html { font-size: 15px; }
+
   body {
     background: var(--bg);
     color: var(--text);
-    font-family: 'Source Serif 4', Georgia, serif;
+    font-family: 'Newsreader', 'Georgia', serif;
     min-height: 100vh;
+    overflow-x: hidden;
   }
 
-  .mono { font-family: 'JetBrains Mono', monospace; }
+  /* Subtle noise texture on body */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.02'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+  }
 
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+
+  /* ============ HEADER ============ */
   header {
-    padding: 1.5rem 2rem;
-    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+    height: 52px;
     display: flex;
     align-items: center;
     justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: relative;
+  }
+
+  /* Thin phosphor line at very top */
+  header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent 0%, var(--phosphor-dim) 20%, var(--phosphor) 50%, var(--phosphor-dim) 80%, transparent 100%);
+    opacity: 0.6;
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
   }
 
   .logo {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 1.4rem;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-  }
-
-  .logo span { color: var(--accent); }
-
-  .subtitle {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.65rem;
-    color: var(--text-dim);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.25em;
     text-transform: uppercase;
-    letter-spacing: 0.15em;
+    color: var(--phosphor);
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
   }
 
+  .logo-icon {
+    width: 20px;
+    height: 20px;
+    border: 1.5px solid var(--phosphor);
+    border-radius: 50%;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .logo-icon::after {
+    content: '';
+    width: 6px;
+    height: 6px;
+    background: var(--phosphor);
+    border-radius: 50%;
+  }
+
+  .header-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+  }
+
+  .header-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    font-weight: 400;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--clear);
+    box-shadow: 0 0 6px var(--clear);
+    animation: pulse-dot 3s ease-in-out infinite;
+  }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  .header-status {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--text-dim);
+    letter-spacing: 0.05em;
+  }
+
+  /* ============ LAYOUT ============ */
   .layout {
     display: grid;
-    grid-template-columns: 1fr 420px;
-    min-height: calc(100vh - 60px);
+    grid-template-columns: 1fr 380px;
+    min-height: calc(100vh - 52px);
   }
 
   @media (max-width: 1100px) {
     .layout { grid-template-columns: 1fr; }
-    .sidebar { border-left: none !important; border-top: 1px solid var(--border); }
+    .sidebar { border-left: none !important; border-top: 1px solid var(--border); max-height: none !important; }
   }
 
-  .main-col { padding: 1.5rem 2rem; }
+  /* ============ MAIN COLUMN ============ */
+  .main-col {
+    padding: 1.5rem 2rem 2rem;
+    position: relative;
+  }
+
+  /* Input area label */
+  .input-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.6rem;
+    font-weight: 500;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .input-label::before {
+    content: '';
+    width: 8px;
+    height: 1px;
+    background: var(--phosphor-dim);
+  }
 
   textarea {
     width: 100%;
-    min-height: 220px;
-    background: var(--surface);
+    min-height: 200px;
+    background: var(--surface-inset);
     border: 1px solid var(--border);
-    border-radius: 3px;
-    color: var(--text);
-    font-family: 'Source Serif 4', Georgia, serif;
-    font-size: 0.95rem;
-    line-height: 1.75;
-    padding: 1.2rem;
+    color: var(--text-bright);
+    font-family: 'Newsreader', Georgia, serif;
+    font-size: 1rem;
+    line-height: 1.8;
+    padding: 1.2rem 1.4rem;
     resize: vertical;
     outline: none;
-    transition: border-color 0.2s;
+    transition: border-color 0.3s, box-shadow 0.3s;
+    position: relative;
   }
 
-  textarea:focus { border-color: var(--accent); }
-  textarea::placeholder { color: var(--text-xdim); }
+  textarea:focus {
+    border-color: var(--phosphor-dim);
+    box-shadow: 0 0 0 1px var(--phosphor-dim), inset 0 0 30px var(--phosphor-glow);
+  }
+
+  textarea::placeholder {
+    color: var(--text-xdim);
+    font-style: italic;
+  }
 
   .controls {
     display: flex;
     align-items: center;
-    gap: 1rem;
-    margin-top: 0.8rem;
+    gap: 0.8rem;
+    margin-top: 0.7rem;
   }
 
-  button {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.8rem;
+  .btn-analyze {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
     font-weight: 600;
-    padding: 0.6rem 1.8rem;
-    border: 1px solid var(--accent);
+    padding: 0.55rem 1.6rem;
+    border: 1px solid var(--phosphor-dim);
     background: transparent;
-    color: var(--accent);
+    color: var(--phosphor);
     cursor: pointer;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    transition: all 0.15s;
+    letter-spacing: 0.15em;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
   }
 
-  button:hover { background: var(--accent); color: var(--bg); }
-  button:disabled { opacity: 0.3; cursor: not-allowed; }
-  button:disabled:hover { background: transparent; color: var(--accent); }
+  .btn-analyze::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--phosphor);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
 
-  .meta {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.7rem;
-    color: var(--text-dim);
+  .btn-analyze:hover {
+    border-color: var(--phosphor);
+    color: var(--bg);
+    background: var(--phosphor);
+    box-shadow: 0 0 20px rgba(232, 168, 50, 0.2);
+  }
+
+  .btn-analyze:disabled {
+    opacity: 0.25;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  .btn-analyze:disabled:hover {
+    background: transparent;
+    color: var(--phosphor);
+  }
+
+  .meta-info {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--text-xdim);
+    letter-spacing: 0.03em;
   }
 
   .spinner {
     display: none;
-    width: 16px; height: 16px;
-    border: 2px solid var(--border);
-    border-top-color: var(--accent);
+    width: 14px;
+    height: 14px;
+    border: 1.5px solid var(--border);
+    border-top-color: var(--phosphor);
     border-radius: 50%;
-    animation: spin 0.7s linear infinite;
+    animation: spin 0.8s linear infinite;
   }
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* --- Verdict Banner --- */
+  /* ============ VERDICT ============ */
   .verdict-banner {
     display: none;
     margin-top: 1.5rem;
-    padding: 1.2rem 1.5rem;
-    border: 1px solid var(--border);
-    background: var(--surface);
+    animation: reveal 0.4s ease-out;
   }
 
-  .verdict-row {
+  @keyframes reveal {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .verdict-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Ambient glow behind verdict based on result */
+  .verdict-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 100%;
+    opacity: 0.04;
+    pointer-events: none;
+  }
+
+  .verdict-card.is-human::before { background: linear-gradient(135deg, var(--clear) 0%, transparent 60%); }
+  .verdict-card.is-ai::before { background: linear-gradient(135deg, var(--alert) 0%, transparent 60%); }
+  .verdict-card.is-suspicious::before { background: linear-gradient(135deg, var(--caution) 0%, transparent 60%); }
+
+  .verdict-top {
+    padding: 1.2rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+
+  .verdict-left {
     display: flex;
     align-items: center;
     gap: 1rem;
   }
 
   .verdict-label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 1.6rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.1rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.12em;
   }
 
-  .verdict-label.human { color: var(--human); }
-  .verdict-label.ai { color: var(--ai); }
-  .verdict-label.unknown { color: var(--warn); }
+  .verdict-label.human { color: var(--clear); }
+  .verdict-label.ai { color: var(--alert); }
+  .verdict-label.suspicious { color: var(--caution); }
+  .verdict-label.unknown { color: var(--caution); }
 
   .badge {
-    display: inline-block;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.6rem;
-    padding: 0.15rem 0.5rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.55rem;
+    font-weight: 500;
+    padding: 0.2rem 0.55rem;
     border: 1px solid;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-
-  .score-row {
-    display: flex;
-    gap: 2rem;
-    margin-top: 0.8rem;
-    font-family: 'JetBrains Mono', monospace;
-  }
-
-  .score-item .label {
-    font-size: 0.6rem;
-    color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.1em;
   }
 
-  .score-item .value {
-    font-size: 1.2rem;
-    font-weight: 700;
-    margin-top: 0.15rem;
+  .verdict-metrics {
+    padding: 1rem 1.5rem;
+    display: flex;
+    gap: 1px;
+    background: var(--border);
+  }
+
+  .metric {
+    flex: 1;
+    background: var(--surface);
+    padding: 0.8rem 1rem;
+    text-align: center;
+  }
+
+  .metric .label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.55rem;
+    font-weight: 400;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 0.35rem;
+  }
+
+  .metric .value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--text-bright);
+  }
+
+  .meter-container {
+    padding: 0 1.5rem 1rem;
+    background: var(--surface);
   }
 
   .meter {
     width: 100%;
-    height: 3px;
+    height: 2px;
     background: var(--border);
-    margin-top: 1rem;
     position: relative;
+    margin-top: 0.5rem;
   }
 
-  .meter-fill { height: 100%; transition: width 0.5s ease; }
+  .meter-fill {
+    height: 100%;
+    transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 0 8px currentColor;
+  }
+
   .meter-mark {
     position: absolute;
-    top: -5px;
+    top: -4px;
     width: 1px;
-    height: 13px;
+    height: 10px;
     background: var(--text-dim);
   }
 
-  .verdict-detail {
-    margin-top: 0.8rem;
-    font-size: 0.85rem;
-    color: var(--text-dim);
-    line-height: 1.5;
+  .meter-mark-label {
+    position: absolute;
+    bottom: -14px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.5rem;
+    color: var(--text-xdim);
+    transform: translateX(-50%);
+    letter-spacing: 0.05em;
   }
 
-  /* --- Sentence Heatmap --- */
+  .verdict-detail {
+    padding: 0.8rem 1.5rem 1rem;
+    background: var(--surface);
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    line-height: 1.55;
+    font-style: italic;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ============ HEATMAP ============ */
   .heatmap-section {
     display: none;
     margin-top: 1.5rem;
+    animation: reveal 0.5s ease-out 0.1s both;
   }
 
-  .section-title {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--text-dim);
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     margin-bottom: 0.8rem;
-    padding-bottom: 0.4rem;
+    padding-bottom: 0.5rem;
     border-bottom: 1px solid var(--border);
   }
 
+  .section-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.6rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--phosphor-dim);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .section-title::before {
+    content: '';
+    width: 3px;
+    height: 3px;
+    background: var(--phosphor);
+    border-radius: 50%;
+    box-shadow: 0 0 4px var(--phosphor);
+  }
+
   .heatmap {
-    line-height: 2;
+    line-height: 2.1;
     font-size: 0.95rem;
+    padding: 1rem 1.2rem;
+    background: var(--surface-inset);
+    border: 1px solid var(--border);
+    position: relative;
+  }
+
+  /* Scanline effect on heatmap */
+  .heatmap::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--scanline);
+    pointer-events: none;
+    opacity: 0.5;
   }
 
   .heatmap-sentence {
     display: inline;
-    padding: 0.15rem 0.1rem;
-    border-radius: 2px;
+    padding: 0.1rem 0;
     cursor: pointer;
-    transition: opacity 0.15s;
+    transition: all 0.15s;
     border-bottom: 2px solid transparent;
+    position: relative;
   }
 
-  .heatmap-sentence:hover { opacity: 0.8; }
-  .heatmap-sentence.selected { opacity: 1; outline: 1px solid var(--text-dim); }
+  .heatmap-sentence:hover {
+    filter: brightness(1.2);
+  }
+
+  .heatmap-sentence.selected {
+    outline: 1px solid var(--border-glow);
+    outline-offset: 2px;
+  }
 
   .heatmap-sentence.human {
-    background: rgba(0, 255, 136, 0.08);
-    border-bottom-color: var(--human);
+    color: var(--clear);
+    background: var(--clear-dim);
+    border-bottom-color: rgba(52, 217, 123, 0.3);
   }
+
   .heatmap-sentence.borderline {
-    background: rgba(255, 170, 0, 0.1);
-    border-bottom-color: var(--borderline);
+    color: var(--caution);
+    background: var(--caution-dim);
+    border-bottom-color: rgba(232, 168, 50, 0.3);
   }
+
   .heatmap-sentence.ai {
-    background: rgba(255, 68, 68, 0.12);
-    border-bottom-color: var(--ai);
+    color: var(--alert);
+    background: var(--alert-dim);
+    border-bottom-color: rgba(232, 69, 69, 0.35);
   }
 
   .heatmap-legend {
     display: flex;
-    gap: 1.2rem;
-    margin-top: 0.8rem;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.65rem;
+    gap: 1.5rem;
+    margin-top: 0.7rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.6rem;
     color: var(--text-dim);
+    letter-spacing: 0.05em;
   }
 
   .legend-item {
     display: flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: 0.4rem;
   }
 
-  .legend-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 1px;
+  .legend-bar {
+    width: 16px;
+    height: 3px;
   }
 
-  /* --- Sidebar --- */
+  /* Sentence detail panel */
+  .sentence-detail {
+    display: none;
+    margin-top: 0.8rem;
+    padding: 1rem 1.2rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--phosphor-dim);
+    animation: reveal 0.25s ease-out;
+  }
+
+  .sd-top {
+    display: flex;
+    align-items: baseline;
+    gap: 0.8rem;
+  }
+
+  .sentence-detail-score {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.3rem;
+    font-weight: 700;
+  }
+
+  .sentence-detail-text {
+    margin-top: 0.5rem;
+    line-height: 1.65;
+    color: var(--text-dim);
+    font-style: italic;
+    font-size: 0.9rem;
+  }
+
+  /* ============ SIDEBAR ============ */
   .sidebar {
     border-left: 1px solid var(--border);
+    background: var(--surface);
     overflow-y: auto;
-    max-height: calc(100vh - 60px);
+    max-height: calc(100vh - 52px);
+    position: sticky;
+    top: 52px;
   }
 
   .sidebar-section {
-    padding: 1.2rem;
+    padding: 1rem 1.2rem;
     border-bottom: 1px solid var(--border);
   }
 
   .sidebar-section:last-child { border-bottom: none; }
 
-  /* Pattern signals */
+  .sidebar .section-title {
+    margin-bottom: 0.7rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* Signals */
   .signal {
     display: flex;
     gap: 0.6rem;
-    padding: 0.6rem 0;
-    border-bottom: 1px solid var(--border);
-    font-size: 0.82rem;
+    padding: 0.55rem 0;
+    font-size: 0.8rem;
     line-height: 1.5;
+    border-bottom: 1px solid var(--border);
   }
 
   .signal:last-child { border-bottom: none; }
 
   .signal-icon {
     flex-shrink: 0;
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.7rem;
-    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    font-family: 'IBM Plex Mono', monospace;
     font-weight: 700;
-    border-radius: 2px;
-    margin-top: 0.1rem;
+    margin-top: 0.15rem;
   }
 
-  .signal-icon.flag { background: rgba(255,68,68,0.15); color: var(--ai); }
-  .signal-icon.warn { background: rgba(255,170,0,0.15); color: var(--warn); }
-  .signal-icon.pass { background: rgba(0,255,136,0.1); color: var(--human); }
+  .signal-icon.flag {
+    color: var(--alert);
+    background: var(--alert-dim);
+  }
+  .signal-icon.warn {
+    color: var(--caution);
+    background: var(--caution-dim);
+  }
+  .signal-icon.pass {
+    color: var(--clear);
+    background: var(--clear-dim);
+  }
+
+  .signal-body {
+    flex: 1;
+    min-width: 0;
+  }
 
   .signal-cat {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.6rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.55rem;
+    font-weight: 500;
     color: var(--text-xdim);
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.15rem;
+  }
+
+  .signal-msg {
+    color: var(--text);
+    font-size: 0.78rem;
+    line-height: 1.5;
   }
 
   /* Stats grid */
   .stats-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 0.6rem;
-  }
-
-  .stat-card {
-    background: var(--surface2);
-    padding: 0.6rem 0.8rem;
+    gap: 1px;
+    background: var(--border);
     border: 1px solid var(--border);
   }
 
+  .stat-cell {
+    background: var(--surface-raised);
+    padding: 0.6rem 0.7rem;
+  }
+
   .stat-label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.6rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.5rem;
+    font-weight: 500;
     color: var(--text-dim);
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.1em;
   }
 
   .stat-value {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 1.1rem;
-    font-weight: 700;
-    margin-top: 0.2rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1rem;
+    font-weight: 600;
+    margin-top: 0.25rem;
+  }
+
+  /* Gauge bar for stats */
+  .stat-gauge {
+    width: 100%;
+    height: 2px;
+    background: var(--border);
+    margin-top: 0.4rem;
+    overflow: hidden;
+  }
+
+  .stat-gauge-fill {
+    height: 100%;
+    transition: width 0.6s ease;
   }
 
   /* Suggestions */
   .suggestion {
-    padding: 0.8rem 0;
+    padding: 0.7rem 0;
     border-bottom: 1px solid var(--border);
   }
 
@@ -379,174 +740,205 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    margin-bottom: 0.4rem;
+    margin-bottom: 0.35rem;
   }
 
-  .severity-dot {
-    width: 6px; height: 6px;
+  .severity-pip {
+    width: 4px;
+    height: 4px;
     border-radius: 50%;
     flex-shrink: 0;
   }
 
-  .severity-dot.high { background: var(--ai); }
-  .severity-dot.medium { background: var(--warn); }
+  .severity-pip.high { background: var(--alert); box-shadow: 0 0 4px var(--alert); }
+  .severity-pip.medium { background: var(--caution); box-shadow: 0 0 4px var(--caution); }
 
   .suggestion-sentence {
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     color: var(--text-dim);
     font-style: italic;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex: 1;
+    min-width: 0;
   }
 
   .suggestion-score {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.65rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.6rem;
     color: var(--text-xdim);
+    flex-shrink: 0;
   }
 
   .tip {
-    font-size: 0.82rem;
+    font-size: 0.78rem;
     color: var(--text);
-    padding: 0.3rem 0 0.3rem 0.8rem;
-    border-left: 2px solid var(--border-light);
-    margin-top: 0.3rem;
+    padding: 0.25rem 0 0.25rem 0.7rem;
+    border-left: 1px solid var(--phosphor-dim);
+    margin-top: 0.25rem;
     line-height: 1.5;
   }
 
-  /* Sentence detail popup */
-  .sentence-detail {
-    display: none;
-    margin-top: 0.8rem;
-    padding: 1rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    font-size: 0.85rem;
-  }
-
-  .sentence-detail-score {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 1.4rem;
-    font-weight: 700;
-  }
-
-  .sentence-detail-text {
-    margin-top: 0.5rem;
-    line-height: 1.6;
-    color: var(--text-dim);
-    font-style: italic;
-  }
-
   .empty-state {
+    font-family: 'IBM Plex Mono', monospace;
     color: var(--text-xdim);
-    font-size: 0.85rem;
-    font-style: italic;
-    padding: 1rem 0;
+    font-size: 0.7rem;
+    padding: 0.8rem 0;
+    letter-spacing: 0.03em;
   }
 
+  /* ============ FOOTER ============ */
   footer {
-    padding: 1rem 2rem;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.6rem;
+    padding: 0.8rem 2rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.55rem;
     color: var(--text-xdim);
     border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    letter-spacing: 0.03em;
   }
 
-  footer a { color: var(--text-xdim); }
+  footer a {
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  footer a:hover { color: var(--phosphor); }
+
+  /* ============ SCROLLBAR ============ */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-xdim); }
+
+  /* ============ SELECTION ============ */
+  ::selection {
+    background: var(--phosphor-glow-strong);
+    color: var(--phosphor-bright);
+  }
 </style>
 </head>
 <body>
+
   <header>
-    <div>
-      <div class="logo"><span>&#x1f52d;</span> binoculars</div>
+    <div class="header-left">
+      <div class="logo">
+        <div class="logo-icon"></div>
+        binoculars
+      </div>
+      <div class="header-divider"></div>
+      <div class="header-label">Forensic Text Analysis</div>
     </div>
-    <div class="subtitle">Statistical AI Text Detection + Rewrite Coach</div>
+    <div class="header-right">
+      <div class="status-dot"></div>
+      <div class="header-status" id="headerStatus">READY</div>
+    </div>
   </header>
 
   <div class="layout">
     <div class="main-col">
-      <textarea id="input" placeholder="Paste text here to analyze. The detector scores each sentence individually, highlights AI-like passages, and suggests specific rewrites to make flagged text undetectable."></textarea>
+
+      <div class="input-label">Input Specimen</div>
+      <textarea id="input" placeholder="Paste text to analyze for AI-generation signatures. Each sentence is scored individually against perplexity baselines, flagged passages are highlighted, and specific rewrite suggestions are generated."></textarea>
       <div class="controls">
-        <button id="analyzeBtn" onclick="detect()">Analyze</button>
+        <button class="btn-analyze" id="analyzeBtn" onclick="detect()">Run Analysis</button>
         <div class="spinner" id="spinner"></div>
-        <span class="meta" id="charcount">0 chars</span>
+        <span class="meta-info" id="charcount">0 chars</span>
       </div>
 
       <!-- Verdict -->
       <div class="verdict-banner" id="verdict-banner">
-        <div class="verdict-row">
-          <span class="verdict-label" id="verdict"></span>
-          <span class="badge" id="confidence"></span>
-        </div>
-        <div class="score-row">
-          <div class="score-item">
-            <div class="label">Score</div>
-            <div class="value" id="score"></div>
+        <div class="verdict-card" id="verdict-card">
+          <div class="verdict-top">
+            <div class="verdict-left">
+              <span class="verdict-label" id="verdict"></span>
+              <span class="badge" id="confidence"></span>
+            </div>
           </div>
-          <div class="score-item">
-            <div class="label">Threshold</div>
-            <div class="value" id="threshold" style="color:var(--text-dim)"></div>
+          <div class="verdict-metrics">
+            <div class="metric">
+              <div class="label">Score</div>
+              <div class="value" id="score"></div>
+            </div>
+            <div class="metric">
+              <div class="label">Threshold</div>
+              <div class="value" id="threshold"></div>
+            </div>
+            <div class="metric">
+              <div class="label">Sentences</div>
+              <div class="value" id="sentCount"></div>
+            </div>
+            <div class="metric">
+              <div class="label">Flagged</div>
+              <div class="value" id="flaggedCount"></div>
+            </div>
           </div>
-          <div class="score-item">
-            <div class="label">Sentences</div>
-            <div class="value" id="sentCount" style="color:var(--text-dim)"></div>
+          <div class="meter-container">
+            <div class="meter">
+              <div class="meter-fill" id="meterFill"></div>
+              <div class="meter-mark" id="meterMark">
+                <div class="meter-mark-label">threshold</div>
+              </div>
+            </div>
           </div>
+          <div class="verdict-detail" id="verdictDetail"></div>
         </div>
-        <div class="meter">
-          <div class="meter-fill" id="meterFill"></div>
-          <div class="meter-mark" id="meterMark"></div>
-        </div>
-        <div class="verdict-detail" id="verdictDetail"></div>
       </div>
 
       <!-- Heatmap -->
       <div class="heatmap-section" id="heatmap-section">
-        <div class="section-title">Sentence Heatmap — click any sentence</div>
-        <div class="heatmap" id="heatmap"></div>
-        <div class="heatmap-legend">
-          <div class="legend-item"><div class="legend-dot" style="background:var(--human)"></div> Human</div>
-          <div class="legend-item"><div class="legend-dot" style="background:var(--borderline)"></div> Borderline</div>
-          <div class="legend-item"><div class="legend-dot" style="background:var(--ai)"></div> AI</div>
+        <div class="section-header">
+          <div class="section-title">Sentence Analysis</div>
+          <div class="heatmap-legend">
+            <div class="legend-item"><div class="legend-bar" style="background:var(--clear)"></div> Clear</div>
+            <div class="legend-item"><div class="legend-bar" style="background:var(--caution)"></div> Borderline</div>
+            <div class="legend-item"><div class="legend-bar" style="background:var(--alert)"></div> Flagged</div>
+          </div>
         </div>
+        <div class="heatmap" id="heatmap"></div>
         <div class="sentence-detail" id="sentence-detail">
-          <div style="display:flex;align-items:baseline;gap:0.8rem">
+          <div class="sd-top">
             <div class="sentence-detail-score" id="sd-score"></div>
             <span class="badge" id="sd-badge"></span>
           </div>
           <div class="sentence-detail-text" id="sd-text"></div>
         </div>
       </div>
+
     </div>
 
     <!-- Sidebar -->
     <div class="sidebar" id="sidebar">
       <div class="sidebar-section">
-        <div class="section-title">Pattern Analysis</div>
+        <div class="section-title">Signals</div>
         <div id="patterns-content">
-          <div class="empty-state">Run analysis to see writing patterns</div>
+          <div class="empty-state">Awaiting analysis</div>
         </div>
       </div>
 
       <div class="sidebar-section">
-        <div class="section-title">Writing Stats</div>
+        <div class="section-title">Metrics</div>
         <div id="stats-content">
-          <div class="empty-state">Run analysis to see stats</div>
+          <div class="empty-state">Awaiting analysis</div>
         </div>
       </div>
 
       <div class="sidebar-section">
         <div class="section-title">Rewrite Coach</div>
         <div id="suggestions-content">
-          <div class="empty-state">Run analysis to get rewrite suggestions</div>
+          <div class="empty-state">Awaiting analysis</div>
         </div>
       </div>
     </div>
   </div>
 
   <footer>
-    Based on <a href="https://github.com/ahans30/Binoculars">Binoculars</a> (ICML 2024)
-    — perplexity ratio between observer/performer LLMs
+    <span>Binoculars method (ICML 2024) &mdash; dual-model perplexity ratio analysis</span>
+    <a href="https://github.com/ahans30/Binoculars" target="_blank">Paper &amp; Source</a>
   </footer>
 
 <script>
@@ -565,8 +957,12 @@ async function detect() {
 
   const btn = document.getElementById('analyzeBtn');
   const spinner = document.getElementById('spinner');
+  const status = document.getElementById('headerStatus');
+
   btn.disabled = true;
   spinner.style.display = 'block';
+  status.textContent = 'ANALYZING';
+  status.style.color = 'var(--phosphor)';
 
   try {
     const res = await fetch('/api/detect', {
@@ -576,7 +972,15 @@ async function detect() {
     });
     currentData = await res.json();
     renderResults(currentData);
+    status.textContent = 'COMPLETE';
+    status.style.color = 'var(--clear)';
+    setTimeout(() => {
+      status.textContent = 'READY';
+      status.style.color = '';
+    }, 3000);
   } catch (e) {
+    status.textContent = 'ERROR';
+    status.style.color = 'var(--alert)';
     alert('Error: ' + e.message);
   } finally {
     btn.disabled = false;
@@ -585,19 +989,29 @@ async function detect() {
 }
 
 function renderResults(data) {
-  // --- Verdict banner ---
+  // --- Verdict ---
   const banner = document.getElementById('verdict-banner');
+  const card = document.getElementById('verdict-card');
   banner.style.display = 'block';
 
   const verdict = document.getElementById('verdict');
-  if (data.prediction === 'human_written') {
+  const isGood = data.prediction === 'human_written';
+  const isSuspicious = data.prediction === 'suspicious';
+  const isAI = data.prediction === 'ai_generated';
+
+  card.className = 'verdict-card ' + (isGood ? 'is-human' : isSuspicious ? 'is-suspicious' : 'is-ai');
+
+  if (isGood) {
     verdict.textContent = 'Human Written';
     verdict.className = 'verdict-label human';
-  } else if (data.prediction === 'ai_generated') {
+  } else if (isSuspicious) {
+    verdict.textContent = 'Suspicious';
+    verdict.className = 'verdict-label suspicious';
+  } else if (isAI) {
     verdict.textContent = 'AI Generated';
     verdict.className = 'verdict-label ai';
   } else {
-    verdict.textContent = 'Insufficient';
+    verdict.textContent = 'Insufficient Data';
     verdict.className = 'verdict-label unknown';
   }
 
@@ -605,17 +1019,24 @@ function renderResults(data) {
   document.getElementById('threshold').textContent = data.threshold.toFixed(4);
   document.getElementById('sentCount').textContent = data.sentences.length;
 
+  const flagged = data.sentences.filter(s => s.rating === 'ai').length;
+  const flaggedEl = document.getElementById('flaggedCount');
+  flaggedEl.textContent = flagged;
+  flaggedEl.style.color = flagged > 0 ? 'var(--alert)' : 'var(--clear)';
+
   const conf = document.getElementById('confidence');
   conf.textContent = data.confidence;
-  const isGood = data.prediction === 'human_written';
-  conf.style.borderColor = isGood ? 'var(--human)' : (data.confidence === 'high' ? 'var(--ai)' : 'var(--warn)');
-  conf.style.color = conf.style.borderColor;
+  const verdictColor = isGood ? 'var(--clear)' : isSuspicious ? 'var(--caution)' : 'var(--alert)';
+  conf.style.borderColor = verdictColor;
+  conf.style.color = verdictColor;
 
   const minS = 0.5, maxS = 1.3;
   const pct = Math.max(0, Math.min(100, ((data.score - minS) / (maxS - minS)) * 100));
   const threshPct = ((data.threshold - minS) / (maxS - minS)) * 100;
-  document.getElementById('meterFill').style.width = pct + '%';
-  document.getElementById('meterFill').style.background = isGood ? 'var(--human)' : 'var(--ai)';
+  const fill = document.getElementById('meterFill');
+  fill.style.width = pct + '%';
+  fill.style.background = verdictColor;
+  fill.style.color = verdictColor;
   document.getElementById('meterMark').style.left = threshPct + '%';
 
   document.getElementById('verdictDetail').textContent = data.details;
@@ -632,59 +1053,71 @@ function renderResults(data) {
     span.textContent = s.text + ' ';
     span.title = `Score: ${s.score.toFixed(4)}`;
     span.onclick = () => showSentenceDetail(s);
+    span.style.animationDelay = (i * 0.02) + 's';
     heatmap.appendChild(span);
   });
 
-  // --- Pattern signals ---
+  // --- Signals ---
   const patternsEl = document.getElementById('patterns-content');
   if (data.patterns.signals && data.patterns.signals.length > 0) {
     patternsEl.innerHTML = data.patterns.signals.map(sig => {
-      const icons = { flag: '!', warn: '?', pass: '✓' };
+      const icons = { flag: '!', warn: '?', pass: '\u2713' };
       return `<div class="signal">
-        <div class="signal-icon ${sig.type}">${icons[sig.type] || '•'}</div>
-        <div>
+        <div class="signal-icon ${sig.type}">${icons[sig.type] || '\u2022'}</div>
+        <div class="signal-body">
           <div class="signal-cat">${sig.category}</div>
-          <div>${sig.message}</div>
+          <div class="signal-msg">${sig.message}</div>
         </div>
       </div>`;
     }).join('');
   } else {
-    patternsEl.innerHTML = '<div class="empty-state">No notable patterns detected</div>';
+    patternsEl.innerHTML = '<div class="empty-state">No anomalies detected</div>';
   }
 
   // --- Stats ---
   const statsEl = document.getElementById('stats-content');
   const p = data.patterns;
+
+  const burstColor = p.burstiness < 0.3 ? 'var(--alert)' : p.burstiness < 0.4 ? 'var(--caution)' : 'var(--clear)';
+  const contrColor = p.contraction_rate < 0.5 ? 'var(--caution)' : 'var(--clear)';
+  const fpColor = p.first_person_rate > 2 ? 'var(--clear)' : 'var(--text-dim)';
+  const aiWColor = p.ai_vocabulary_count > 0 ? 'var(--alert)' : 'var(--clear)';
+  const aiTColor = p.ai_transition_count > 0 ? 'var(--alert)' : 'var(--clear)';
+
   statsEl.innerHTML = `<div class="stats-grid">
-    <div class="stat-card">
+    <div class="stat-cell">
       <div class="stat-label">Burstiness</div>
-      <div class="stat-value" style="color:${p.burstiness < 0.3 ? 'var(--ai)' : p.burstiness < 0.4 ? 'var(--warn)' : 'var(--human)'}">${p.burstiness}</div>
+      <div class="stat-value" style="color:${burstColor}">${p.burstiness}</div>
+      <div class="stat-gauge"><div class="stat-gauge-fill" style="width:${Math.min(p.burstiness / 0.6 * 100, 100)}%;background:${burstColor}"></div></div>
     </div>
-    <div class="stat-card">
+    <div class="stat-cell">
       <div class="stat-label">Avg Sent Len</div>
       <div class="stat-value">${p.avg_sentence_length}</div>
+      <div class="stat-gauge"><div class="stat-gauge-fill" style="width:${Math.min(p.avg_sentence_length / 30 * 100, 100)}%;background:var(--text-dim)"></div></div>
     </div>
-    <div class="stat-card">
+    <div class="stat-cell">
       <div class="stat-label">Contractions</div>
-      <div class="stat-value" style="color:${p.contraction_rate < 0.5 ? 'var(--warn)' : 'var(--human)'}">${p.contraction_rate}%</div>
+      <div class="stat-value" style="color:${contrColor}">${p.contraction_rate}%</div>
+      <div class="stat-gauge"><div class="stat-gauge-fill" style="width:${Math.min(p.contraction_rate / 3 * 100, 100)}%;background:${contrColor}"></div></div>
     </div>
-    <div class="stat-card">
+    <div class="stat-cell">
       <div class="stat-label">1st Person</div>
-      <div class="stat-value" style="color:${p.first_person_rate > 2 ? 'var(--human)' : 'var(--text-dim)'}">${p.first_person_rate}%</div>
+      <div class="stat-value" style="color:${fpColor}">${p.first_person_rate}%</div>
+      <div class="stat-gauge"><div class="stat-gauge-fill" style="width:${Math.min(p.first_person_rate / 5 * 100, 100)}%;background:${fpColor}"></div></div>
     </div>
-    <div class="stat-card">
-      <div class="stat-label">AI Words</div>
-      <div class="stat-value" style="color:${p.ai_vocabulary_count > 0 ? 'var(--ai)' : 'var(--human)'}">${p.ai_vocabulary_count}</div>
+    <div class="stat-cell">
+      <div class="stat-label">AI Vocabulary</div>
+      <div class="stat-value" style="color:${aiWColor}">${p.ai_vocabulary_count}</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-cell">
       <div class="stat-label">AI Transitions</div>
-      <div class="stat-value" style="color:${p.ai_transition_count > 0 ? 'var(--ai)' : 'var(--human)'}">${p.ai_transition_count}</div>
+      <div class="stat-value" style="color:${aiTColor}">${p.ai_transition_count}</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-cell">
       <div class="stat-label">Short Sents</div>
       <div class="stat-value">${p.length_distribution.short}</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-cell">
       <div class="stat-label">Long Sents</div>
       <div class="stat-value">${p.length_distribution.long}</div>
     </div>
@@ -696,9 +1129,9 @@ function renderResults(data) {
     sugEl.innerHTML = data.suggestions.map(sug => {
       const isGlobal = sug.sentence_index === -1;
       const header = isGlobal
-        ? '<span style="font-size:0.75rem;color:var(--text-dim)">Overall</span>'
+        ? '<div style="font-family:IBM Plex Mono,monospace;font-size:0.6rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.3rem">Overall Pattern</div>'
         : `<div class="suggestion-header">
-            <div class="severity-dot ${sug.severity}"></div>
+            <div class="severity-pip ${sug.severity}"></div>
             <div class="suggestion-sentence">${escHtml(sug.sentence)}</div>
             ${sug.score ? `<div class="suggestion-score">${sug.score.toFixed(4)}</div>` : ''}
           </div>`;
@@ -706,7 +1139,7 @@ function renderResults(data) {
       return `<div class="suggestion">${header}${tips}</div>`;
     }).join('');
   } else {
-    sugEl.innerHTML = '<div class="empty-state">No suggestions — text looks clean</div>';
+    sugEl.innerHTML = '<div class="empty-state">No rewrite suggestions \u2014 specimen appears clean</div>';
   }
 }
 
@@ -716,16 +1149,15 @@ function showSentenceDetail(s) {
 
   const scoreEl = document.getElementById('sd-score');
   scoreEl.textContent = s.score.toFixed(4);
-  scoreEl.style.color = s.rating === 'human' ? 'var(--human)' : s.rating === 'ai' ? 'var(--ai)' : 'var(--warn)';
+  scoreEl.style.color = s.rating === 'human' ? 'var(--clear)' : s.rating === 'ai' ? 'var(--alert)' : 'var(--caution)';
 
   const badge = document.getElementById('sd-badge');
-  badge.textContent = s.rating;
+  badge.textContent = s.rating === 'human' ? 'clear' : s.rating === 'ai' ? 'flagged' : 'borderline';
   badge.style.borderColor = scoreEl.style.color;
   badge.style.color = scoreEl.style.color;
 
   document.getElementById('sd-text').textContent = s.text;
 
-  // Highlight selected
   document.querySelectorAll('.heatmap-sentence').forEach((el, i) => {
     el.classList.toggle('selected', i === s.index);
   });

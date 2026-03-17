@@ -19,6 +19,8 @@ PERFORMER_MODEL = os.getenv("PERFORMER_MODEL", "tiiuae/falcon-7b-instruct")
 DEVICE = os.getenv("DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
 THRESHOLD = float(os.getenv("THRESHOLD", "0.9015"))
 LOW_THRESHOLD = float(os.getenv("LOW_THRESHOLD", "0.8536"))
+# Scores between THRESHOLD and SUSPICIOUS_CEILING are "suspicious" — too close to call
+SUSPICIOUS_MARGIN = float(os.getenv("SUSPICIOUS_MARGIN", "0.05"))  # 5% above threshold
 
 if DEVICE == "cpu":
     OBSERVER_MODEL = os.getenv("OBSERVER_MODEL", "facebook/opt-1.3b")
@@ -469,17 +471,66 @@ async def detect(req: DetectRequest):
     # Rewrite suggestions
     suggestions = generate_suggestions(sentences, sentence_scores, patterns)
 
-    # Overall verdict
+    # Count pattern red flags for composite scoring
+    red_flags = sum(1 for s in patterns.get("signals", []) if s["type"] == "flag")
+    warn_flags = sum(1 for s in patterns.get("signals", []) if s["type"] == "warn")
+    flagged_sentences = sum(1 for s in sentence_scores if s["rating"] == "ai")
+    borderline_sentences = sum(1 for s in sentence_scores if s["rating"] == "borderline")
+    total_sentences = len(sentence_scores)
+
+    # Proportion of sentences that are AI or borderline
+    suspect_ratio = (flagged_sentences + borderline_sentences * 0.5) / max(total_sentences, 1)
+
+    suspicious_ceiling = THRESHOLD + (THRESHOLD * SUSPICIOUS_MARGIN)
+
+    # Overall verdict — composite of score + patterns + sentence distribution
     if overall < LOW_THRESHOLD:
         prediction, confidence = "ai_generated", "high"
-        details = f"Score {overall:.4f} is well below threshold {THRESHOLD}. Strong AI signature."
+        details = f"Score {overall:.4f} is well below threshold {THRESHOLD:.4f}. Strong AI signature."
     elif overall < THRESHOLD:
         prediction, confidence = "ai_generated", "moderate"
-        details = f"Score {overall:.4f} is below threshold {THRESHOLD}. Likely AI-generated."
+        details = f"Score {overall:.4f} is below threshold {THRESHOLD:.4f}. Likely AI-generated."
+    elif overall < suspicious_ceiling:
+        # In the suspicious zone — too close to call on score alone
+        # Use pattern signals and sentence distribution to tip the verdict
+        if red_flags >= 2 or suspect_ratio > 0.3:
+            prediction, confidence = "ai_generated", "moderate"
+            details = (
+                f"Score {overall:.4f} barely clears threshold {THRESHOLD:.4f} "
+                f"but {red_flags} pattern flags and {flagged_sentences}/{total_sentences} "
+                f"flagged sentences indicate AI generation."
+            )
+        elif red_flags >= 1 or suspect_ratio > 0.15:
+            prediction, confidence = "suspicious", "moderate"
+            details = (
+                f"Score {overall:.4f} is marginally above threshold {THRESHOLD:.4f}. "
+                f"Pattern analysis found {red_flags} flags, {warn_flags} warnings. "
+                f"{flagged_sentences + borderline_sentences}/{total_sentences} sentences "
+                f"scored below threshold. Likely AI-generated or heavily AI-assisted."
+            )
+        else:
+            prediction, confidence = "suspicious", "low"
+            details = (
+                f"Score {overall:.4f} is in the margin zone above threshold {THRESHOLD:.4f}. "
+                f"Pattern analysis is mostly clean. Could be human with very predictable "
+                f"style, or lightly edited AI text."
+            )
     else:
-        prediction = "human_written"
-        confidence = "high" if overall > THRESHOLD * 1.15 else "moderate"
-        details = f"Score {overall:.4f} is above threshold {THRESHOLD}. Human-like unpredictability."
+        # Clearly above suspicious ceiling
+        if red_flags >= 3 or suspect_ratio > 0.4:
+            # Score says human but patterns scream AI — flag it
+            prediction, confidence = "suspicious", "moderate"
+            details = (
+                f"Score {overall:.4f} is above threshold but {red_flags} pattern "
+                f"flags detected. {flagged_sentences}/{total_sentences} sentences "
+                f"individually flagged. Mixed signals — investigate further."
+            )
+        elif overall > suspicious_ceiling * 1.1:
+            prediction, confidence = "human_written", "high"
+            details = f"Score {overall:.4f} is well above threshold {THRESHOLD:.4f}. Human-like unpredictability."
+        else:
+            prediction, confidence = "human_written", "moderate"
+            details = f"Score {overall:.4f} is above threshold {THRESHOLD:.4f}. Appears human-written."
 
     return DetectResponse(
         score=round(overall, 4),
