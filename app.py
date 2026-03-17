@@ -1,9 +1,11 @@
 import os
+import re
+import math
 import torch
 import logging
-from fastapi import FastAPI, Request
+import statistics
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from pathlib import Path
@@ -15,10 +17,9 @@ log = logging.getLogger("binoculars")
 OBSERVER_MODEL = os.getenv("OBSERVER_MODEL", "tiiuae/falcon-7b")
 PERFORMER_MODEL = os.getenv("PERFORMER_MODEL", "tiiuae/falcon-7b-instruct")
 DEVICE = os.getenv("DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
-THRESHOLD = float(os.getenv("THRESHOLD", "0.9015"))  # Binoculars paper default
-LOW_THRESHOLD = float(os.getenv("LOW_THRESHOLD", "0.8536"))  # High-confidence AI
+THRESHOLD = float(os.getenv("THRESHOLD", "0.9015"))
+LOW_THRESHOLD = float(os.getenv("LOW_THRESHOLD", "0.8536"))
 
-# CPU fallback: use smaller models
 if DEVICE == "cpu":
     OBSERVER_MODEL = os.getenv("OBSERVER_MODEL", "facebook/opt-1.3b")
     PERFORMER_MODEL = os.getenv("PERFORMER_MODEL", "facebook/opt-iml-1.3b")
@@ -26,7 +27,6 @@ if DEVICE == "cpu":
 
 app = FastAPI(title="Binoculars AI Text Detector")
 
-# --- Model loading ---
 tokenizer = None
 observer = None
 performer = None
@@ -57,64 +57,361 @@ async def startup():
 
 
 # --- Binoculars core ---
-def compute_binoculars_score(text: str) -> float:
-    """
-    Binoculars score = perplexity(observer) / perplexity(performer)
-
-    Low score (<threshold) = likely AI-generated
-    High score (>threshold) = likely human-written
-
-    The intuition: AI text is equally predictable to both models,
-    so the ratio is low. Human text surprises the performer more
-    than the observer, pushing the ratio higher.
-    """
+def compute_score(text: str) -> float:
+    """Compute binoculars score for a text chunk."""
     inputs = tokenizer(
-        text,
-        return_tensors="pt",
-        truncation=True,
-        max_length=512,
-        padding=True,
+        text, return_tensors="pt", truncation=True, max_length=512, padding=True,
     ).to(DEVICE)
 
     with torch.no_grad():
-        observer_logits = observer(**inputs).logits
-        performer_logits = performer(**inputs).logits
+        obs_logits = observer(**inputs).logits
+        perf_logits = performer(**inputs).logits
 
-    # Shift for next-token prediction alignment
-    shift_logits_obs = observer_logits[:, :-1, :].contiguous()
-    shift_logits_perf = performer_logits[:, :-1, :].contiguous()
+    shift_obs = obs_logits[:, :-1, :].contiguous()
+    shift_perf = perf_logits[:, :-1, :].contiguous()
     shift_labels = inputs["input_ids"][:, 1:].contiguous()
 
-    # Cross-entropy per token
     loss_fn = torch.nn.CrossEntropyLoss(reduction="none")
+    ce_obs = loss_fn(shift_obs.view(-1, shift_obs.size(-1)), shift_labels.view(-1))
+    ce_perf = loss_fn(shift_perf.view(-1, shift_perf.size(-1)), shift_labels.view(-1))
 
-    ce_observer = loss_fn(
-        shift_logits_obs.view(-1, shift_logits_obs.size(-1)),
-        shift_labels.view(-1),
-    )
-    ce_performer = loss_fn(
-        shift_logits_perf.view(-1, shift_logits_perf.size(-1)),
-        shift_labels.view(-1),
-    )
-
-    # Mask padding tokens
     mask = (shift_labels != tokenizer.pad_token_id).view(-1).float()
-    n_tokens = mask.sum().item()
-    if n_tokens == 0:
+    n = mask.sum().item()
+    if n == 0:
         return 1.0
 
-    ppl_observer = (ce_observer * mask).sum().item() / n_tokens
-    ppl_performer = (ce_performer * mask).sum().item() / n_tokens
-
-    if ppl_performer == 0:
-        return 1.0
-
-    return ppl_observer / ppl_performer
+    ppl_obs = (ce_obs * mask).sum().item() / n
+    ppl_perf = (ce_perf * mask).sum().item() / n
+    return ppl_obs / ppl_perf if ppl_perf > 0 else 1.0
 
 
-# --- API ---
+def split_sentences(text: str) -> list[str]:
+    """Split text into sentences, preserving meaningful chunks."""
+    # Split on sentence-ending punctuation followed by space or newline
+    raw = re.split(r'(?<=[.!?])\s+', text.strip())
+    # Merge very short fragments (< 30 chars) with the previous sentence
+    merged = []
+    for s in raw:
+        s = s.strip()
+        if not s:
+            continue
+        if merged and len(s) < 30:
+            merged[-1] = merged[-1] + " " + s
+        else:
+            merged.append(s)
+    return merged
+
+
+# --- Pattern Analysis ---
+
+# Words that AI models overuse — statistically more frequent in LLM output
+AI_OVERUSED_WORDS = {
+    "furthermore", "moreover", "additionally", "consequently", "nevertheless",
+    "comprehensive", "crucial", "fundamental", "significant", "substantial",
+    "demonstrate", "facilitate", "utilize", "implement", "leverage",
+    "multifaceted", "nuanced", "paradigm", "synergy", "holistic",
+    "delve", "embark", "foster", "underscore", "pivotal",
+    "realm", "landscape", "tapestry", "beacon", "testament",
+    "robust", "streamline", "optimize", "enhance", "elevate",
+    "in conclusion", "it is worth noting", "it is important to note",
+    "plays a crucial role", "serves as a",
+}
+
+# Transition phrases AI overuses
+AI_TRANSITIONS = {
+    "in addition to this", "on the other hand", "as a result",
+    "in light of this", "with that being said", "having said that",
+    "it goes without saying", "needless to say", "at the end of the day",
+    "when it comes to", "in terms of", "with regard to",
+    "that said", "that being said",
+}
+
+
+def analyze_patterns(text: str, sentences: list[str]) -> dict:
+    """Analyze writing patterns that distinguish human from AI text."""
+    words = text.lower().split()
+    word_count = len(words)
+
+    # --- Sentence length variance (burstiness) ---
+    sent_lengths = [len(s.split()) for s in sentences]
+    avg_len = statistics.mean(sent_lengths) if sent_lengths else 0
+    len_stdev = statistics.stdev(sent_lengths) if len(sent_lengths) > 1 else 0
+    # Coefficient of variation — humans typically > 0.4, AI tends < 0.3
+    burstiness = len_stdev / avg_len if avg_len > 0 else 0
+
+    # --- Sentence length pattern (AI tends toward uniform lengths) ---
+    length_buckets = {"short": 0, "medium": 0, "long": 0}
+    for l in sent_lengths:
+        if l <= 10:
+            length_buckets["short"] += 1
+        elif l <= 25:
+            length_buckets["medium"] += 1
+        else:
+            length_buckets["long"] += 1
+
+    # --- AI vocabulary detection ---
+    text_lower = text.lower()
+    found_ai_words = []
+    for w in AI_OVERUSED_WORDS:
+        if w in text_lower:
+            found_ai_words.append(w)
+
+    found_ai_transitions = []
+    for t in AI_TRANSITIONS:
+        if t in text_lower:
+            found_ai_transitions.append(t)
+
+    # --- Structural parallelism (AI loves parallel constructions) ---
+    # Check for sentences starting with the same word pattern
+    starts = [s.split()[0].lower() if s.split() else "" for s in sentences]
+    start_counts = {}
+    for st in starts:
+        start_counts[st] = start_counts.get(st, 0) + 1
+    repeated_starts = {k: v for k, v in start_counts.items() if v >= 3}
+
+    # Check for sentences with very similar structure (same length ± 2 words)
+    similar_length_groups = 0
+    for i in range(len(sent_lengths)):
+        group = 0
+        for j in range(i + 1, min(i + 4, len(sent_lengths))):
+            if abs(sent_lengths[i] - sent_lengths[j]) <= 2:
+                group += 1
+        if group >= 2:
+            similar_length_groups += 1
+
+    # --- Contraction usage (humans use more contractions) ---
+    contractions = re.findall(
+        r"\b(?:I'm|I'll|I've|I'd|don't|doesn't|didn't|won't|wouldn't|can't|couldn't|"
+        r"shouldn't|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't|it's|that's|"
+        r"there's|here's|what's|who's|let's|they're|we're|you're|he's|she's)\b",
+        text, re.IGNORECASE,
+    )
+    contraction_rate = len(contractions) / max(word_count, 1) * 100
+
+    # --- First person usage (personal voice) ---
+    first_person = len(re.findall(r"\b(?:I|my|me|mine|myself)\b", text))
+    first_person_rate = first_person / max(word_count, 1) * 100
+
+    # --- Paragraph length variance ---
+    paragraphs = [p.strip() for p in text.split("\n") if p.strip()]
+    para_lengths = [len(p.split()) for p in paragraphs]
+    para_variance = statistics.stdev(para_lengths) if len(para_lengths) > 1 else 0
+
+    # --- Build signals list ---
+    signals = []
+
+    if burstiness < 0.25:
+        signals.append({
+            "type": "flag",
+            "category": "burstiness",
+            "message": f"Very uniform sentence lengths (CV={burstiness:.2f}). Human writing is messier — mix short punchy sentences with longer ones.",
+        })
+    elif burstiness < 0.35:
+        signals.append({
+            "type": "warn",
+            "category": "burstiness",
+            "message": f"Somewhat uniform sentence lengths (CV={burstiness:.2f}). Could use more variation.",
+        })
+    else:
+        signals.append({
+            "type": "pass",
+            "category": "burstiness",
+            "message": f"Good sentence length variation (CV={burstiness:.2f}). Natural rhythm.",
+        })
+
+    if found_ai_words:
+        signals.append({
+            "type": "flag",
+            "category": "vocabulary",
+            "message": f"AI-overused words detected: {', '.join(found_ai_words)}. Replace with simpler or more specific alternatives.",
+        })
+
+    if found_ai_transitions:
+        signals.append({
+            "type": "flag",
+            "category": "transitions",
+            "message": f"AI-typical transitions: {', '.join(found_ai_transitions)}. Use more natural connectors or just start the next thought directly.",
+        })
+
+    if repeated_starts:
+        items = [f"'{k}' ({v}x)" for k, v in repeated_starts.items()]
+        signals.append({
+            "type": "warn",
+            "category": "parallelism",
+            "message": f"Repeated sentence starters: {', '.join(items)}. Vary your openings.",
+        })
+
+    if similar_length_groups >= 3:
+        signals.append({
+            "type": "flag",
+            "category": "structure",
+            "message": f"Multiple clusters of nearly identical sentence lengths. This uniformity is an AI signature.",
+        })
+
+    if contraction_rate < 0.5 and word_count > 100:
+        signals.append({
+            "type": "warn",
+            "category": "voice",
+            "message": f"Very few contractions ({contraction_rate:.1f}%). Natural informal writing uses more. Consider 'do not' → 'don't', etc.",
+        })
+    elif contraction_rate > 1.5:
+        signals.append({
+            "type": "pass",
+            "category": "voice",
+            "message": f"Natural contraction usage ({contraction_rate:.1f}%). Reads like a real person.",
+        })
+
+    if first_person_rate > 2.0:
+        signals.append({
+            "type": "pass",
+            "category": "voice",
+            "message": f"Strong personal voice ({first_person_rate:.1f}% first-person). Reads authentically.",
+        })
+    elif first_person_rate < 0.5 and word_count > 100:
+        signals.append({
+            "type": "warn",
+            "category": "voice",
+            "message": "Very little first-person voice. Adding personal perspective makes text read more human.",
+        })
+
+    if length_buckets["medium"] > 0.7 * len(sentences) and len(sentences) > 5:
+        signals.append({
+            "type": "flag",
+            "category": "structure",
+            "message": f"{length_buckets['medium']}/{len(sentences)} sentences are medium length (11-25 words). AI defaults to this range. Add some short punchy sentences and longer complex ones.",
+        })
+
+    return {
+        "burstiness": round(burstiness, 3),
+        "avg_sentence_length": round(avg_len, 1),
+        "sentence_length_stdev": round(len_stdev, 1),
+        "length_distribution": length_buckets,
+        "contraction_rate": round(contraction_rate, 2),
+        "first_person_rate": round(first_person_rate, 2),
+        "ai_vocabulary_count": len(found_ai_words),
+        "ai_transition_count": len(found_ai_transitions),
+        "signals": signals,
+    }
+
+
+# --- Rewrite Coach ---
+def generate_suggestions(
+    sentences: list[str],
+    sentence_scores: list[dict],
+    patterns: dict,
+) -> list[dict]:
+    """Generate specific rewrite suggestions for flagged sentences and patterns."""
+    suggestions = []
+
+    # Per-sentence suggestions for the worst offenders
+    flagged = sorted(
+        [s for s in sentence_scores if s["score"] < THRESHOLD],
+        key=lambda x: x["score"],
+    )
+
+    for item in flagged[:5]:  # Top 5 worst
+        sent = item["text"]
+        score = item["score"]
+        tips = []
+
+        words = sent.split()
+        sent_lower = sent.lower()
+
+        # Check for AI vocabulary in this sentence
+        ai_words_here = [w for w in AI_OVERUSED_WORDS if w in sent_lower]
+        if ai_words_here:
+            replacements = {
+                "furthermore": "also / and / plus",
+                "moreover": "and / on top of that",
+                "additionally": "also / and",
+                "consequently": "so / because of that",
+                "nevertheless": "still / but / even so",
+                "comprehensive": "[be specific: what does it cover?]",
+                "crucial": "matters because [reason]",
+                "fundamental": "[say what it actually is]",
+                "significant": "[quantify it or name the impact]",
+                "substantial": "[give the number or scale]",
+                "demonstrate": "show / prove",
+                "facilitate": "help / make easier / enable",
+                "utilize": "use",
+                "implement": "build / set up / add",
+                "leverage": "use / take advantage of",
+                "robust": "[describe what makes it strong]",
+                "streamline": "simplify / speed up",
+                "optimize": "improve / tune / make faster",
+                "enhance": "improve / add to",
+                "elevate": "raise / improve",
+                "delve": "dig into / look at / explore",
+                "pivotal": "key / important because [reason]",
+                "holistic": "[describe what aspects you mean]",
+            }
+            for w in ai_words_here:
+                alt = replacements.get(w, "[use a more specific word]")
+                tips.append(f"Replace '{w}' with: {alt}")
+
+        # Check sentence length
+        if 12 <= len(words) <= 22:
+            tips.append(
+                "Medium-length sentence — either shorten it to punch harder, "
+                "or extend it with a specific detail"
+            )
+
+        # Check for passive voice indicators
+        passive = re.search(
+            r"\b(?:is|are|was|were|be|been|being)\s+(?:\w+ed|written|known|seen|made|done|given|taken)\b",
+            sent, re.IGNORECASE,
+        )
+        if passive:
+            tips.append(
+                f"Passive voice detected ('{passive.group()}'). "
+                "Rewrite with the subject doing the action"
+            )
+
+        # Check for hedging language
+        hedges = re.findall(
+            r"\b(?:somewhat|relatively|fairly|rather|quite|perhaps|possibly|"
+            r"tend to|seems to|appears to|might be|could be)\b",
+            sent, re.IGNORECASE,
+        )
+        if hedges:
+            tips.append(
+                f"Hedging language: {', '.join(hedges)}. "
+                "Commit to the statement or cut it"
+            )
+
+        if tips:
+            suggestions.append({
+                "sentence_index": item["index"],
+                "sentence": sent[:120] + ("..." if len(sent) > 120 else ""),
+                "score": score,
+                "severity": "high" if score < LOW_THRESHOLD else "medium",
+                "tips": tips,
+            })
+
+    # Global suggestions from pattern analysis
+    for signal in patterns.get("signals", []):
+        if signal["type"] in ("flag", "warn"):
+            suggestions.append({
+                "sentence_index": -1,
+                "sentence": "[Overall pattern]",
+                "score": 0,
+                "severity": "high" if signal["type"] == "flag" else "medium",
+                "tips": [signal["message"]],
+            })
+
+    return suggestions
+
+
+# --- API Models ---
 class DetectRequest(BaseModel):
     text: str
+
+
+class SentenceScore(BaseModel):
+    index: int
+    text: str
+    score: float
+    rating: str  # "human", "borderline", "ai"
 
 
 class DetectResponse(BaseModel):
@@ -123,6 +420,9 @@ class DetectResponse(BaseModel):
     confidence: str
     threshold: float
     details: str
+    sentences: list[SentenceScore]
+    patterns: dict
+    suggestions: list[dict]
 
 
 @app.post("/api/detect", response_model=DetectResponse)
@@ -130,34 +430,66 @@ async def detect(req: DetectRequest):
     text = req.text.strip()
     if len(text) < 50:
         return DetectResponse(
-            score=0.0,
-            prediction="insufficient_text",
-            confidence="none",
+            score=0.0, prediction="insufficient_text", confidence="none",
             threshold=THRESHOLD,
             details="Need at least 50 characters for meaningful analysis",
+            sentences=[], patterns={}, suggestions=[],
         )
 
-    score = compute_binoculars_score(text)
+    # Overall score
+    overall = compute_score(text)
 
-    if score < LOW_THRESHOLD:
-        prediction = "ai_generated"
-        confidence = "high"
-        details = f"Score {score:.4f} is well below threshold {THRESHOLD}. Strong statistical signature of AI generation."
-    elif score < THRESHOLD:
-        prediction = "ai_generated"
-        confidence = "moderate"
-        details = f"Score {score:.4f} is below threshold {THRESHOLD}. Likely AI-generated but less certain."
+    # Per-sentence scoring
+    sentences = split_sentences(text)
+    sentence_scores = []
+    for i, sent in enumerate(sentences):
+        if len(sent.split()) < 4:
+            # Too short to score meaningfully
+            s_score = overall
+        else:
+            s_score = compute_score(sent)
+
+        if s_score >= THRESHOLD:
+            rating = "human"
+        elif s_score >= LOW_THRESHOLD:
+            rating = "borderline"
+        else:
+            rating = "ai"
+
+        sentence_scores.append({
+            "index": i,
+            "text": sent,
+            "score": round(s_score, 4),
+            "rating": rating,
+        })
+
+    # Pattern analysis
+    patterns = analyze_patterns(text, sentences)
+
+    # Rewrite suggestions
+    suggestions = generate_suggestions(sentences, sentence_scores, patterns)
+
+    # Overall verdict
+    if overall < LOW_THRESHOLD:
+        prediction, confidence = "ai_generated", "high"
+        details = f"Score {overall:.4f} is well below threshold {THRESHOLD}. Strong AI signature."
+    elif overall < THRESHOLD:
+        prediction, confidence = "ai_generated", "moderate"
+        details = f"Score {overall:.4f} is below threshold {THRESHOLD}. Likely AI-generated."
     else:
         prediction = "human_written"
-        confidence = "high" if score > THRESHOLD * 1.15 else "moderate"
-        details = f"Score {score:.4f} is above threshold {THRESHOLD}. Text shows human-like unpredictability."
+        confidence = "high" if overall > THRESHOLD * 1.15 else "moderate"
+        details = f"Score {overall:.4f} is above threshold {THRESHOLD}. Human-like unpredictability."
 
     return DetectResponse(
-        score=round(score, 4),
+        score=round(overall, 4),
         prediction=prediction,
         confidence=confidence,
         threshold=THRESHOLD,
         details=details,
+        sentences=[SentenceScore(**s) for s in sentence_scores],
+        patterns=patterns,
+        suggestions=suggestions,
     )
 
 

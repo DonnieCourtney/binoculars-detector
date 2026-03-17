@@ -5,19 +5,26 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Binoculars — AI Text Detector</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap');
 
   :root {
     --bg: #0a0a0a;
-    --surface: #141414;
+    --surface: #111;
+    --surface2: #1a1a1a;
     --border: #2a2a2a;
+    --border-light: #333;
     --text: #e0e0e0;
-    --text-dim: #888;
+    --text-dim: #777;
+    --text-xdim: #555;
     --accent: #00ff88;
+    --accent-dim: #00cc6a;
     --danger: #ff4444;
+    --danger-dim: #cc3333;
     --warn: #ffaa00;
+    --warn-dim: #cc8800;
     --human: #00ff88;
     --ai: #ff4444;
+    --borderline: #ffaa00;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -27,262 +34,519 @@
     color: var(--text);
     font-family: 'Source Serif 4', Georgia, serif;
     min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
   }
+
+  .mono { font-family: 'JetBrains Mono', monospace; }
 
   header {
-    width: 100%;
-    padding: 2rem;
+    padding: 1.5rem 2rem;
     border-bottom: 1px solid var(--border);
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
   }
 
-  h1 {
+  .logo {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 1.8rem;
+    font-size: 1.4rem;
     font-weight: 700;
     letter-spacing: -0.02em;
-    color: var(--text);
   }
 
-  h1 span { color: var(--accent); }
+  .logo span { color: var(--accent); }
 
   .subtitle {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.75rem;
+    font-size: 0.65rem;
     color: var(--text-dim);
-    margin-top: 0.4rem;
     text-transform: uppercase;
     letter-spacing: 0.15em;
   }
 
-  main {
-    width: 100%;
-    max-width: 800px;
-    padding: 2rem;
-    flex: 1;
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 420px;
+    min-height: calc(100vh - 60px);
   }
+
+  @media (max-width: 1100px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-left: none !important; border-top: 1px solid var(--border); }
+  }
+
+  .main-col { padding: 1.5rem 2rem; }
 
   textarea {
     width: 100%;
-    min-height: 300px;
+    min-height: 220px;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: 3px;
     color: var(--text);
     font-family: 'Source Serif 4', Georgia, serif;
-    font-size: 1rem;
-    line-height: 1.7;
-    padding: 1.5rem;
+    font-size: 0.95rem;
+    line-height: 1.75;
+    padding: 1.2rem;
     resize: vertical;
     outline: none;
     transition: border-color 0.2s;
   }
 
   textarea:focus { border-color: var(--accent); }
-
-  textarea::placeholder { color: var(--text-dim); }
+  textarea::placeholder { color: var(--text-xdim); }
 
   .controls {
     display: flex;
     align-items: center;
     gap: 1rem;
-    margin-top: 1rem;
+    margin-top: 0.8rem;
   }
 
   button {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     font-weight: 600;
-    padding: 0.7rem 2rem;
+    padding: 0.6rem 1.8rem;
     border: 1px solid var(--accent);
     background: transparent;
     color: var(--accent);
     cursor: pointer;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.08em;
     transition: all 0.15s;
   }
 
-  button:hover {
-    background: var(--accent);
-    color: var(--bg);
-  }
+  button:hover { background: var(--accent); color: var(--bg); }
+  button:disabled { opacity: 0.3; cursor: not-allowed; }
+  button:disabled:hover { background: transparent; color: var(--accent); }
 
-  button:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-
-  .char-count {
+  .meta {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.75rem;
-    color: var(--text-dim);
-  }
-
-  #result {
-    margin-top: 2rem;
-    display: none;
-  }
-
-  .result-card {
-    border: 1px solid var(--border);
-    padding: 2rem;
-    background: var(--surface);
-  }
-
-  .verdict {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 2rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .verdict.human { color: var(--human); }
-  .verdict.ai { color: var(--ai); }
-  .verdict.unknown { color: var(--warn); }
-
-  .score-row {
-    display: flex;
-    align-items: baseline;
-    gap: 1rem;
-    margin-top: 1rem;
-    font-family: 'JetBrains Mono', monospace;
-  }
-
-  .score-label {
     font-size: 0.7rem;
     color: var(--text-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-  }
-
-  .score-value {
-    font-size: 1.4rem;
-    font-weight: 700;
-  }
-
-  .meter {
-    width: 100%;
-    height: 4px;
-    background: var(--border);
-    margin-top: 1.5rem;
-    position: relative;
-  }
-
-  .meter-fill {
-    height: 100%;
-    transition: width 0.6s ease, background 0.3s;
-  }
-
-  .meter-threshold {
-    position: absolute;
-    top: -6px;
-    width: 2px;
-    height: 16px;
-    background: var(--text-dim);
-  }
-
-  .meter-threshold-label {
-    position: absolute;
-    top: 14px;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.6rem;
-    color: var(--text-dim);
-    transform: translateX(-50%);
-  }
-
-  .details {
-    margin-top: 1.5rem;
-    font-size: 0.9rem;
-    color: var(--text-dim);
-    line-height: 1.6;
-  }
-
-  .confidence-badge {
-    display: inline-block;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.65rem;
-    padding: 0.2rem 0.6rem;
-    border: 1px solid;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-left: 1rem;
-    vertical-align: middle;
   }
 
   .spinner {
     display: none;
-    width: 18px;
-    height: 18px;
+    width: 16px; height: 16px;
     border: 2px solid var(--border);
     border-top-color: var(--accent);
     border-radius: 50%;
-    animation: spin 0.8s linear infinite;
+    animation: spin 0.7s linear infinite;
   }
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  footer {
-    padding: 1.5rem;
+  /* --- Verdict Banner --- */
+  .verdict-banner {
+    display: none;
+    margin-top: 1.5rem;
+    padding: 1.2rem 1.5rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .verdict-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .verdict-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .verdict-label.human { color: var(--human); }
+  .verdict-label.ai { color: var(--ai); }
+  .verdict-label.unknown { color: var(--warn); }
+
+  .badge {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    padding: 0.15rem 0.5rem;
+    border: 1px solid;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .score-row {
+    display: flex;
+    gap: 2rem;
+    margin-top: 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .score-item .label {
+    font-size: 0.6rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .score-item .value {
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin-top: 0.15rem;
+  }
+
+  .meter {
+    width: 100%;
+    height: 3px;
+    background: var(--border);
+    margin-top: 1rem;
+    position: relative;
+  }
+
+  .meter-fill { height: 100%; transition: width 0.5s ease; }
+  .meter-mark {
+    position: absolute;
+    top: -5px;
+    width: 1px;
+    height: 13px;
+    background: var(--text-dim);
+  }
+
+  .verdict-detail {
+    margin-top: 0.8rem;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  /* --- Sentence Heatmap --- */
+  .heatmap-section {
+    display: none;
+    margin-top: 1.5rem;
+  }
+
+  .section-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 0.8rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .heatmap {
+    line-height: 2;
+    font-size: 0.95rem;
+  }
+
+  .heatmap-sentence {
+    display: inline;
+    padding: 0.15rem 0.1rem;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    border-bottom: 2px solid transparent;
+  }
+
+  .heatmap-sentence:hover { opacity: 0.8; }
+  .heatmap-sentence.selected { opacity: 1; outline: 1px solid var(--text-dim); }
+
+  .heatmap-sentence.human {
+    background: rgba(0, 255, 136, 0.08);
+    border-bottom-color: var(--human);
+  }
+  .heatmap-sentence.borderline {
+    background: rgba(255, 170, 0, 0.1);
+    border-bottom-color: var(--borderline);
+  }
+  .heatmap-sentence.ai {
+    background: rgba(255, 68, 68, 0.12);
+    border-bottom-color: var(--ai);
+  }
+
+  .heatmap-legend {
+    display: flex;
+    gap: 1.2rem;
+    margin-top: 0.8rem;
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.65rem;
     color: var(--text-dim);
-    text-align: center;
-    border-top: 1px solid var(--border);
-    width: 100%;
   }
 
-  footer a { color: var(--text-dim); }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  .legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 1px;
+  }
+
+  /* --- Sidebar --- */
+  .sidebar {
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    max-height: calc(100vh - 60px);
+  }
+
+  .sidebar-section {
+    padding: 1.2rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-section:last-child { border-bottom: none; }
+
+  /* Pattern signals */
+  .signal {
+    display: flex;
+    gap: 0.6rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.82rem;
+    line-height: 1.5;
+  }
+
+  .signal:last-child { border-bottom: none; }
+
+  .signal-icon {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    border-radius: 2px;
+    margin-top: 0.1rem;
+  }
+
+  .signal-icon.flag { background: rgba(255,68,68,0.15); color: var(--ai); }
+  .signal-icon.warn { background: rgba(255,170,0,0.15); color: var(--warn); }
+  .signal-icon.pass { background: rgba(0,255,136,0.1); color: var(--human); }
+
+  .signal-cat {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--text-xdim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  /* Stats grid */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem;
+  }
+
+  .stat-card {
+    background: var(--surface2);
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--border);
+  }
+
+  .stat-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .stat-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-top: 0.2rem;
+  }
+
+  /* Suggestions */
+  .suggestion {
+    padding: 0.8rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .suggestion:last-child { border-bottom: none; }
+
+  .suggestion-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.4rem;
+  }
+
+  .severity-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .severity-dot.high { background: var(--ai); }
+  .severity-dot.medium { background: var(--warn); }
+
+  .suggestion-sentence {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    font-style: italic;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .suggestion-score {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--text-xdim);
+  }
+
+  .tip {
+    font-size: 0.82rem;
+    color: var(--text);
+    padding: 0.3rem 0 0.3rem 0.8rem;
+    border-left: 2px solid var(--border-light);
+    margin-top: 0.3rem;
+    line-height: 1.5;
+  }
+
+  /* Sentence detail popup */
+  .sentence-detail {
+    display: none;
+    margin-top: 0.8rem;
+    padding: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    font-size: 0.85rem;
+  }
+
+  .sentence-detail-score {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.4rem;
+    font-weight: 700;
+  }
+
+  .sentence-detail-text {
+    margin-top: 0.5rem;
+    line-height: 1.6;
+    color: var(--text-dim);
+    font-style: italic;
+  }
+
+  .empty-state {
+    color: var(--text-xdim);
+    font-size: 0.85rem;
+    font-style: italic;
+    padding: 1rem 0;
+  }
+
+  footer {
+    padding: 1rem 2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--text-xdim);
+    border-top: 1px solid var(--border);
+  }
+
+  footer a { color: var(--text-xdim); }
 </style>
 </head>
 <body>
   <header>
-    <h1><span>&#x1f52d;</span> binoculars</h1>
-    <div class="subtitle">Statistical AI Text Detection</div>
+    <div>
+      <div class="logo"><span>&#x1f52d;</span> binoculars</div>
+    </div>
+    <div class="subtitle">Statistical AI Text Detection + Rewrite Coach</div>
   </header>
 
-  <main>
-    <textarea id="input" placeholder="Paste text here to analyze..."></textarea>
-    <div class="controls">
-      <button id="analyze" onclick="detect()">Analyze</button>
-      <div class="spinner" id="spinner"></div>
-      <span class="char-count" id="charcount">0 chars</span>
-    </div>
+  <div class="layout">
+    <div class="main-col">
+      <textarea id="input" placeholder="Paste text here to analyze. The detector scores each sentence individually, highlights AI-like passages, and suggests specific rewrites to make flagged text undetectable."></textarea>
+      <div class="controls">
+        <button id="analyzeBtn" onclick="detect()">Analyze</button>
+        <div class="spinner" id="spinner"></div>
+        <span class="meta" id="charcount">0 chars</span>
+      </div>
 
-    <div id="result">
-      <div class="result-card">
-        <div>
-          <span class="verdict" id="verdict"></span>
-          <span class="confidence-badge" id="confidence"></span>
+      <!-- Verdict -->
+      <div class="verdict-banner" id="verdict-banner">
+        <div class="verdict-row">
+          <span class="verdict-label" id="verdict"></span>
+          <span class="badge" id="confidence"></span>
         </div>
         <div class="score-row">
-          <div>
-            <div class="score-label">Score</div>
-            <div class="score-value" id="score"></div>
+          <div class="score-item">
+            <div class="label">Score</div>
+            <div class="value" id="score"></div>
           </div>
-          <div>
-            <div class="score-label">Threshold</div>
-            <div class="score-value" id="threshold" style="color: var(--text-dim);"></div>
+          <div class="score-item">
+            <div class="label">Threshold</div>
+            <div class="value" id="threshold" style="color:var(--text-dim)"></div>
+          </div>
+          <div class="score-item">
+            <div class="label">Sentences</div>
+            <div class="value" id="sentCount" style="color:var(--text-dim)"></div>
           </div>
         </div>
         <div class="meter">
           <div class="meter-fill" id="meterFill"></div>
-          <div class="meter-threshold" id="meterThreshold">
-            <div class="meter-threshold-label">threshold</div>
-          </div>
+          <div class="meter-mark" id="meterMark"></div>
         </div>
-        <div class="details" id="details"></div>
+        <div class="verdict-detail" id="verdictDetail"></div>
+      </div>
+
+      <!-- Heatmap -->
+      <div class="heatmap-section" id="heatmap-section">
+        <div class="section-title">Sentence Heatmap — click any sentence</div>
+        <div class="heatmap" id="heatmap"></div>
+        <div class="heatmap-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--human)"></div> Human</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--borderline)"></div> Borderline</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--ai)"></div> AI</div>
+        </div>
+        <div class="sentence-detail" id="sentence-detail">
+          <div style="display:flex;align-items:baseline;gap:0.8rem">
+            <div class="sentence-detail-score" id="sd-score"></div>
+            <span class="badge" id="sd-badge"></span>
+          </div>
+          <div class="sentence-detail-text" id="sd-text"></div>
+        </div>
       </div>
     </div>
-  </main>
+
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-section">
+        <div class="section-title">Pattern Analysis</div>
+        <div id="patterns-content">
+          <div class="empty-state">Run analysis to see writing patterns</div>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-title">Writing Stats</div>
+        <div id="stats-content">
+          <div class="empty-state">Run analysis to see stats</div>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-title">Rewrite Coach</div>
+        <div id="suggestions-content">
+          <div class="empty-state">Run analysis to get rewrite suggestions</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <footer>
     Based on <a href="https://github.com/ahans30/Binoculars">Binoculars</a> (ICML 2024)
-    &mdash; perplexity ratio between observer/performer LLMs
+    — perplexity ratio between observer/performer LLMs
   </footer>
 
 <script>
@@ -293,14 +557,13 @@ input.addEventListener('input', () => {
   charcount.textContent = input.value.length + ' chars';
 });
 
+let currentData = null;
+
 async function detect() {
   const text = input.value.trim();
-  if (text.length < 50) {
-    alert('Need at least 50 characters');
-    return;
-  }
+  if (text.length < 50) { alert('Need at least 50 characters'); return; }
 
-  const btn = document.getElementById('analyze');
+  const btn = document.getElementById('analyzeBtn');
   const spinner = document.getElementById('spinner');
   btn.disabled = true;
   spinner.style.display = 'block';
@@ -311,53 +574,167 @@ async function detect() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     });
-    const data = await res.json();
-
-    const result = document.getElementById('result');
-    const verdict = document.getElementById('verdict');
-    const score = document.getElementById('score');
-    const threshold = document.getElementById('threshold');
-    const confidence = document.getElementById('confidence');
-    const details = document.getElementById('details');
-    const meterFill = document.getElementById('meterFill');
-    const meterThreshold = document.getElementById('meterThreshold');
-
-    result.style.display = 'block';
-
-    if (data.prediction === 'human_written') {
-      verdict.textContent = 'Human Written';
-      verdict.className = 'verdict human';
-    } else if (data.prediction === 'ai_generated') {
-      verdict.textContent = 'AI Generated';
-      verdict.className = 'verdict ai';
-    } else {
-      verdict.textContent = 'Insufficient Text';
-      verdict.className = 'verdict unknown';
-    }
-
-    score.textContent = data.score.toFixed(4);
-    threshold.textContent = data.threshold.toFixed(4);
-
-    confidence.textContent = data.confidence + ' confidence';
-    confidence.style.borderColor =
-      data.confidence === 'high' ? (data.prediction === 'human_written' ? 'var(--human)' : 'var(--ai)') : 'var(--warn)';
-    confidence.style.color = confidence.style.borderColor;
-
-    // Meter: score range roughly 0.5 to 1.3
-    const minS = 0.5, maxS = 1.3;
-    const pct = Math.max(0, Math.min(100, ((data.score - minS) / (maxS - minS)) * 100));
-    const threshPct = ((data.threshold - minS) / (maxS - minS)) * 100;
-    meterFill.style.width = pct + '%';
-    meterFill.style.background = data.prediction === 'human_written' ? 'var(--human)' : 'var(--ai)';
-    meterThreshold.style.left = threshPct + '%';
-
-    details.textContent = data.details;
+    currentData = await res.json();
+    renderResults(currentData);
   } catch (e) {
     alert('Error: ' + e.message);
   } finally {
     btn.disabled = false;
     spinner.style.display = 'none';
   }
+}
+
+function renderResults(data) {
+  // --- Verdict banner ---
+  const banner = document.getElementById('verdict-banner');
+  banner.style.display = 'block';
+
+  const verdict = document.getElementById('verdict');
+  if (data.prediction === 'human_written') {
+    verdict.textContent = 'Human Written';
+    verdict.className = 'verdict-label human';
+  } else if (data.prediction === 'ai_generated') {
+    verdict.textContent = 'AI Generated';
+    verdict.className = 'verdict-label ai';
+  } else {
+    verdict.textContent = 'Insufficient';
+    verdict.className = 'verdict-label unknown';
+  }
+
+  document.getElementById('score').textContent = data.score.toFixed(4);
+  document.getElementById('threshold').textContent = data.threshold.toFixed(4);
+  document.getElementById('sentCount').textContent = data.sentences.length;
+
+  const conf = document.getElementById('confidence');
+  conf.textContent = data.confidence;
+  const isGood = data.prediction === 'human_written';
+  conf.style.borderColor = isGood ? 'var(--human)' : (data.confidence === 'high' ? 'var(--ai)' : 'var(--warn)');
+  conf.style.color = conf.style.borderColor;
+
+  const minS = 0.5, maxS = 1.3;
+  const pct = Math.max(0, Math.min(100, ((data.score - minS) / (maxS - minS)) * 100));
+  const threshPct = ((data.threshold - minS) / (maxS - minS)) * 100;
+  document.getElementById('meterFill').style.width = pct + '%';
+  document.getElementById('meterFill').style.background = isGood ? 'var(--human)' : 'var(--ai)';
+  document.getElementById('meterMark').style.left = threshPct + '%';
+
+  document.getElementById('verdictDetail').textContent = data.details;
+
+  // --- Heatmap ---
+  const heatSection = document.getElementById('heatmap-section');
+  heatSection.style.display = 'block';
+  const heatmap = document.getElementById('heatmap');
+  heatmap.innerHTML = '';
+
+  data.sentences.forEach((s, i) => {
+    const span = document.createElement('span');
+    span.className = `heatmap-sentence ${s.rating}`;
+    span.textContent = s.text + ' ';
+    span.title = `Score: ${s.score.toFixed(4)}`;
+    span.onclick = () => showSentenceDetail(s);
+    heatmap.appendChild(span);
+  });
+
+  // --- Pattern signals ---
+  const patternsEl = document.getElementById('patterns-content');
+  if (data.patterns.signals && data.patterns.signals.length > 0) {
+    patternsEl.innerHTML = data.patterns.signals.map(sig => {
+      const icons = { flag: '!', warn: '?', pass: '✓' };
+      return `<div class="signal">
+        <div class="signal-icon ${sig.type}">${icons[sig.type] || '•'}</div>
+        <div>
+          <div class="signal-cat">${sig.category}</div>
+          <div>${sig.message}</div>
+        </div>
+      </div>`;
+    }).join('');
+  } else {
+    patternsEl.innerHTML = '<div class="empty-state">No notable patterns detected</div>';
+  }
+
+  // --- Stats ---
+  const statsEl = document.getElementById('stats-content');
+  const p = data.patterns;
+  statsEl.innerHTML = `<div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-label">Burstiness</div>
+      <div class="stat-value" style="color:${p.burstiness < 0.3 ? 'var(--ai)' : p.burstiness < 0.4 ? 'var(--warn)' : 'var(--human)'}">${p.burstiness}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg Sent Len</div>
+      <div class="stat-value">${p.avg_sentence_length}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Contractions</div>
+      <div class="stat-value" style="color:${p.contraction_rate < 0.5 ? 'var(--warn)' : 'var(--human)'}">${p.contraction_rate}%</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">1st Person</div>
+      <div class="stat-value" style="color:${p.first_person_rate > 2 ? 'var(--human)' : 'var(--text-dim)'}">${p.first_person_rate}%</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">AI Words</div>
+      <div class="stat-value" style="color:${p.ai_vocabulary_count > 0 ? 'var(--ai)' : 'var(--human)'}">${p.ai_vocabulary_count}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">AI Transitions</div>
+      <div class="stat-value" style="color:${p.ai_transition_count > 0 ? 'var(--ai)' : 'var(--human)'}">${p.ai_transition_count}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Short Sents</div>
+      <div class="stat-value">${p.length_distribution.short}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Long Sents</div>
+      <div class="stat-value">${p.length_distribution.long}</div>
+    </div>
+  </div>`;
+
+  // --- Suggestions ---
+  const sugEl = document.getElementById('suggestions-content');
+  if (data.suggestions && data.suggestions.length > 0) {
+    sugEl.innerHTML = data.suggestions.map(sug => {
+      const isGlobal = sug.sentence_index === -1;
+      const header = isGlobal
+        ? '<span style="font-size:0.75rem;color:var(--text-dim)">Overall</span>'
+        : `<div class="suggestion-header">
+            <div class="severity-dot ${sug.severity}"></div>
+            <div class="suggestion-sentence">${escHtml(sug.sentence)}</div>
+            ${sug.score ? `<div class="suggestion-score">${sug.score.toFixed(4)}</div>` : ''}
+          </div>`;
+      const tips = sug.tips.map(t => `<div class="tip">${escHtml(t)}</div>`).join('');
+      return `<div class="suggestion">${header}${tips}</div>`;
+    }).join('');
+  } else {
+    sugEl.innerHTML = '<div class="empty-state">No suggestions — text looks clean</div>';
+  }
+}
+
+function showSentenceDetail(s) {
+  const detail = document.getElementById('sentence-detail');
+  detail.style.display = 'block';
+
+  const scoreEl = document.getElementById('sd-score');
+  scoreEl.textContent = s.score.toFixed(4);
+  scoreEl.style.color = s.rating === 'human' ? 'var(--human)' : s.rating === 'ai' ? 'var(--ai)' : 'var(--warn)';
+
+  const badge = document.getElementById('sd-badge');
+  badge.textContent = s.rating;
+  badge.style.borderColor = scoreEl.style.color;
+  badge.style.color = scoreEl.style.color;
+
+  document.getElementById('sd-text').textContent = s.text;
+
+  // Highlight selected
+  document.querySelectorAll('.heatmap-sentence').forEach((el, i) => {
+    el.classList.toggle('selected', i === s.index);
+  });
+}
+
+function escHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
 }
 </script>
 </body>
