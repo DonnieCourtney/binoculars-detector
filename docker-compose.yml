@@ -1,0 +1,24 @@
+services:
+  binoculars:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8111:8000"
+    volumes:
+      - model-cache:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - OBSERVER_MODEL=tiiuae/falcon-7b
+      - PERFORMER_MODEL=tiiuae/falcon-7b-instruct
+      - THRESHOLD=0.9015
+    restart: unless-stopped
+
+volumes:
+  model-cache:

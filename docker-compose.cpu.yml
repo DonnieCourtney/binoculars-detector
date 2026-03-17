@@ -1,0 +1,18 @@
+services:
+  binoculars:
+    build:
+      context: .
+      dockerfile: Dockerfile.cpu
+    ports:
+      - "8111:8000"
+    volumes:
+      - model-cache:/models
+    environment:
+      - DEVICE=cpu
+      - OBSERVER_MODEL=facebook/opt-1.3b
+      - PERFORMER_MODEL=facebook/opt-iml-1.3b
+      - THRESHOLD=0.9015
+    restart: unless-stopped
+
+volumes:
+  model-cache:
