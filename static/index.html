@@ -288,6 +288,144 @@
     color: var(--phosphor);
   }
 
+  .btn-rewrite {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.55rem 1.2rem;
+    border: 1px solid var(--clear);
+    color: var(--clear);
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-rewrite:hover {
+    background: var(--clear-dim);
+    box-shadow: 0 0 12px rgba(52, 217, 123, 0.15);
+  }
+
+  .btn-rewrite:disabled {
+    opacity: 0.25;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  .btn-rewrite:disabled:hover {
+    background: transparent;
+  }
+
+  /* --- Rewrite Results Section --- */
+  .rewrite-section {
+    margin-top: 1.5rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    animation: fadeSlideIn 0.4s ease-out;
+  }
+
+  .rewrite-section .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.7rem 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .rewrite-meta {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.6rem;
+    color: var(--text-dim);
+    letter-spacing: 0.05em;
+  }
+
+  .rewrite-comparison {
+    padding: 1rem;
+  }
+
+  .rewrite-scores {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .rewrite-score-card {
+    flex: 1;
+    padding: 0.8rem;
+    background: var(--surface-inset);
+    border: 1px solid var(--border);
+    text-align: center;
+  }
+
+  .rewrite-score-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.55rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 0.3rem;
+  }
+
+  .rewrite-score-value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.4rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .rewrite-score-pred {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-top: 0.2rem;
+  }
+
+  .rewrite-arrow {
+    font-size: 1.2rem;
+    color: var(--text-xdim);
+    flex-shrink: 0;
+  }
+
+  .rewrite-output {
+    background: var(--surface-inset);
+    border: 1px solid var(--border);
+    padding: 1rem;
+    font-family: 'Newsreader', serif;
+    font-size: 0.9rem;
+    line-height: 1.7;
+    color: var(--text-bright);
+    white-space: pre-wrap;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  .rewrite-actions {
+    display: flex;
+    gap: 0.6rem;
+    margin-top: 0.8rem;
+  }
+
+  .btn-copy, .btn-analyze-rw {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.45rem 0.9rem;
+    border: 1px solid var(--border-strong);
+    color: var(--text-dim);
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-copy:hover, .btn-analyze-rw:hover {
+    border-color: var(--phosphor-dim);
+    color: var(--phosphor);
+  }
+
   .meta-info {
     font-family: 'IBM Plex Mono', monospace;
     font-size: 0.65rem;
@@ -1138,6 +1276,7 @@
       <textarea id="input" placeholder="Paste text to analyze for AI-generation signatures. Each sentence is scored individually against perplexity baselines, flagged passages are highlighted, and specific rewrite suggestions are generated."></textarea>
       <div class="controls">
         <button class="btn-analyze" id="analyzeBtn" onclick="detect()">Run Analysis</button>
+        <button class="btn-rewrite" id="rewriteBtn" onclick="rewriteText()">Rewrite</button>
         <div class="spinner" id="spinner"></div>
         <span class="meta-info" id="charcount">0 chars</span>
         <div style="flex:1"></div>
@@ -1254,6 +1393,34 @@
             <span class="badge" id="sd-badge"></span>
           </div>
           <div class="sentence-detail-text" id="sd-text"></div>
+        </div>
+      </div>
+
+      <!-- Rewrite Results -->
+      <div class="rewrite-section" id="rewrite-section" style="display:none">
+        <div class="section-header">
+          <div class="section-title">Rewrite Output</div>
+          <div class="rewrite-meta" id="rewrite-meta"></div>
+        </div>
+        <div class="rewrite-comparison">
+          <div class="rewrite-scores">
+            <div class="rewrite-score-card">
+              <div class="rewrite-score-label">Original</div>
+              <div class="rewrite-score-value" id="rw-original-score"></div>
+              <div class="rewrite-score-pred" id="rw-original-pred"></div>
+            </div>
+            <div class="rewrite-arrow">&#8594;</div>
+            <div class="rewrite-score-card">
+              <div class="rewrite-score-label">Rewritten</div>
+              <div class="rewrite-score-value" id="rw-new-score"></div>
+              <div class="rewrite-score-pred" id="rw-new-pred"></div>
+            </div>
+          </div>
+          <div class="rewrite-output" id="rw-output"></div>
+          <div class="rewrite-actions">
+            <button class="btn-copy" onclick="copyRewrite()">Copy to Clipboard</button>
+            <button class="btn-analyze-rw" onclick="analyzeRewrite()">Analyze Rewrite</button>
+          </div>
         </div>
       </div>
 
@@ -1515,6 +1682,98 @@ function escHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+// ============ REWRITE ENGINE ============
+let lastRewriteText = '';
+
+async function rewriteText() {
+  const text = input.value.trim();
+  if (text.length < 50) { alert('Need at least 50 characters'); return; }
+
+  const btn = document.getElementById('rewriteBtn');
+  const spinner = document.getElementById('spinner');
+  const status = document.getElementById('headerStatus');
+
+  btn.disabled = true;
+  document.getElementById('analyzeBtn').disabled = true;
+  spinner.style.display = 'block';
+  status.textContent = 'REWRITING';
+  status.style.color = 'var(--clear)';
+
+  try {
+    const res = await fetch('/api/rewrite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const data = await res.json();
+    renderRewrite(data);
+
+    status.textContent = data.success ? 'REWRITE OK' : 'REWRITE DONE';
+    status.style.color = data.success ? 'var(--clear)' : 'var(--caution)';
+    setTimeout(() => { status.textContent = 'READY'; status.style.color = ''; }, 4000);
+  } catch (e) {
+    status.textContent = 'ERROR';
+    status.style.color = 'var(--alert)';
+    alert('Rewrite error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    document.getElementById('analyzeBtn').disabled = false;
+    spinner.style.display = 'none';
+  }
+}
+
+function renderRewrite(data) {
+  const section = document.getElementById('rewrite-section');
+  section.style.display = 'block';
+
+  // Original score
+  const origScore = document.getElementById('rw-original-score');
+  origScore.textContent = data.original_score.toFixed(4);
+  origScore.style.color = data.original_prediction === 'human_written' ? 'var(--clear)' : 'var(--alert)';
+
+  const origPred = document.getElementById('rw-original-pred');
+  origPred.textContent = data.original_prediction === 'human_written' ? 'HUMAN' : 'AI';
+  origPred.style.color = origScore.style.color;
+
+  // New score
+  const newScore = document.getElementById('rw-new-score');
+  newScore.textContent = data.rewritten_score.toFixed(4);
+  newScore.style.color = data.rewritten_prediction === 'human_written' ? 'var(--clear)' : data.rewritten_score > data.original_score ? 'var(--caution)' : 'var(--alert)';
+
+  const newPred = document.getElementById('rw-new-pred');
+  newPred.textContent = data.rewritten_prediction === 'human_written' ? 'HUMAN' : 'AI';
+  newPred.style.color = newScore.style.color;
+
+  // Meta
+  const meta = document.getElementById('rewrite-meta');
+  meta.textContent = `${data.attempts} attempt${data.attempts > 1 ? 's' : ''} · ${data.success ? 'PASSED' : 'BEST EFFORT'}`;
+  meta.style.color = data.success ? 'var(--clear)' : 'var(--caution)';
+
+  // Output text
+  const output = document.getElementById('rw-output');
+  output.textContent = data.rewritten_text;
+  lastRewriteText = data.rewritten_text;
+
+  // Scroll to it
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function copyRewrite() {
+  if (!lastRewriteText) return;
+  navigator.clipboard.writeText(lastRewriteText).then(() => {
+    const btn = document.querySelector('.btn-copy');
+    btn.textContent = 'Copied';
+    setTimeout(() => { btn.textContent = 'Copy to Clipboard'; }, 2000);
+  });
+}
+
+function analyzeRewrite() {
+  if (!lastRewriteText) return;
+  input.value = lastRewriteText;
+  charcount.textContent = lastRewriteText.length + ' chars';
+  detect();
 }
 
 // ============ CALIBRATION ============

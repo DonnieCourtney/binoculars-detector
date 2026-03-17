@@ -1,7 +1,6 @@
 import os
 import re
 import json
-import math
 import torch
 import logging
 import statistics
@@ -23,6 +22,11 @@ LOW_THRESHOLD = float(os.getenv("LOW_THRESHOLD", "0.8536"))
 # Scores between THRESHOLD and SUSPICIOUS_CEILING are "suspicious" — too close to call
 SUSPICIOUS_MARGIN = float(os.getenv("SUSPICIOUS_MARGIN", "0.05"))  # 5% above threshold
 
+# Rewrite engine — local model, different architecture from detector pair
+REWRITE_MODEL = os.getenv("REWRITE_MODEL", "Qwen/Qwen2.5-1.5B-Instruct")
+REWRITE_MAX_ATTEMPTS = int(os.getenv("REWRITE_MAX_ATTEMPTS", "3"))
+REWRITE_DEVICE = os.getenv("REWRITE_DEVICE", "auto")  # "auto" lets HF pick
+
 if DEVICE == "cpu":
     OBSERVER_MODEL = os.getenv("OBSERVER_MODEL", "facebook/opt-1.3b")
     PERFORMER_MODEL = os.getenv("PERFORMER_MODEL", "facebook/opt-iml-1.3b")
@@ -33,10 +37,12 @@ app = FastAPI(title="Binoculars AI Text Detector")
 tokenizer = None
 observer = None
 performer = None
+rewrite_model = None
+rewrite_tokenizer = None
 
 
 def load_models():
-    global tokenizer, observer, performer
+    global tokenizer, observer, performer, rewrite_model, rewrite_tokenizer
     dtype = torch.float16 if DEVICE == "cuda" else torch.float32
     log.info(f"Loading observer: {OBSERVER_MODEL} on {DEVICE} ({dtype})")
     observer = AutoModelForCausalLM.from_pretrained(
@@ -51,7 +57,16 @@ def load_models():
     tokenizer = AutoTokenizer.from_pretrained(OBSERVER_MODEL)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    log.info("Models loaded successfully")
+    log.info("Detection models loaded")
+
+    # Load rewrite model (different architecture = different statistical fingerprint)
+    log.info(f"Loading rewrite model: {REWRITE_MODEL}")
+    rewrite_tokenizer = AutoTokenizer.from_pretrained(REWRITE_MODEL)
+    rewrite_model = AutoModelForCausalLM.from_pretrained(
+        REWRITE_MODEL, torch_dtype=torch.float16, device_map=REWRITE_DEVICE
+    )
+    rewrite_model.eval()
+    log.info("All models loaded successfully")
 
 
 def auto_calibrate():
@@ -794,6 +809,136 @@ async def calibrate_delete_sample(index: int):
         save_calibration(cal)
         return {"removed": removed["name"], "remaining": len(cal["samples"])}
     return {"error": "invalid index"}
+
+
+# --- Rewrite Engine ---
+REWRITE_SYSTEM_PROMPT = """You are rewriting text for a college student. Your job: preserve the meaning but make the writing sound like an actual student wrote it from scratch.
+
+Rules:
+- Write like a real student, not a polished writer. Students ramble sometimes. They use "like" and "honestly" and "I think." They start sentences with "But" and "And."
+- Vary sentence length drastically. Some sentences should be 4-6 words. Others 30+. The rhythm should feel uneven, like someone thinking out loud.
+- Use contractions naturally (don't, won't, can't, I'm, it's, that's, they're).
+- Include first-person perspective where it fits (I, my, me).
+- Be specific instead of general. Replace abstract claims with concrete examples or observations.
+- Avoid these words entirely: furthermore, moreover, additionally, consequently, nevertheless, comprehensive, crucial, fundamental, significant, substantial, facilitate, utilize, implement, leverage, multifaceted, nuanced, paradigm, holistic, robust, streamline, optimize, enhance, elevate, delve, underscore, pivotal, tapestry, testament, landscape.
+- Don't use em dashes. Use commas, periods, or just start a new sentence.
+- Don't use the "Not only X, but Y" construction.
+- Don't list things in groups of three.
+- Let some sentences be incomplete thoughts or self-corrections ("well, maybe not exactly, but...").
+- Add a tangent or aside that shows real thinking, not just regurgitation.
+- Keep the core argument and all factual claims intact. Don't add false information.
+- Match the approximate length of the original (within 20%).
+- DO NOT include any meta-commentary about the rewriting process. Just output the rewritten text."""
+
+class RewriteRequest(BaseModel):
+    text: str
+
+class RewriteResponse(BaseModel):
+    original_score: float
+    original_prediction: str
+    rewritten_text: str
+    rewritten_score: float
+    rewritten_prediction: str
+    attempts: int
+    success: bool  # True if rewritten text scores as human
+
+
+def generate_rewrite(text: str) -> str:
+    """Use the local Qwen model to rewrite text with human-like patterns."""
+    messages = [
+        {"role": "system", "content": REWRITE_SYSTEM_PROMPT},
+        {"role": "user", "content": f"Rewrite this text:\n\n{text}"},
+    ]
+
+    # Build chat template
+    prompt = rewrite_tokenizer.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True
+    )
+
+    inputs = rewrite_tokenizer(prompt, return_tensors="pt").to(rewrite_model.device)
+    input_len = inputs["input_ids"].shape[1]
+
+    # Target ~same length as input, with some room
+    input_word_count = len(text.split())
+    max_new_tokens = min(int(input_word_count * 3), 1024)  # rough token/word ratio ~1.3
+
+    with torch.no_grad():
+        output = rewrite_model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            do_sample=True,
+            temperature=0.9,
+            top_p=0.92,
+            top_k=50,
+            repetition_penalty=1.15,
+        )
+
+    # Decode only the generated tokens (skip the prompt)
+    generated = output[0][input_len:]
+    result = rewrite_tokenizer.decode(generated, skip_special_tokens=True).strip()
+
+    return result
+
+
+@app.post("/api/rewrite", response_model=RewriteResponse)
+async def rewrite(req: RewriteRequest):
+    text = req.text.strip()
+    if len(text) < 50:
+        return RewriteResponse(
+            original_score=0.0, original_prediction="insufficient_text",
+            rewritten_text="", rewritten_score=0.0,
+            rewritten_prediction="insufficient_text",
+            attempts=0, success=False,
+        )
+
+    # Score the original
+    original_score = compute_score(text)
+    original_pred = "human_written" if original_score >= THRESHOLD else "ai_generated"
+
+    best_text = ""
+    best_score = 0.0
+    best_pred = ""
+
+    for attempt in range(1, REWRITE_MAX_ATTEMPTS + 1):
+        log.info(f"Rewrite attempt {attempt}/{REWRITE_MAX_ATTEMPTS}")
+
+        rewritten = generate_rewrite(text)
+        if not rewritten or len(rewritten) < 30:
+            log.warning(f"Attempt {attempt}: empty or too short output, retrying")
+            continue
+
+        score = compute_score(rewritten)
+        pred = "human_written" if score >= THRESHOLD else "ai_generated"
+        log.info(f"Attempt {attempt}: score {score:.4f} (original {original_score:.4f})")
+
+        if score > best_score:
+            best_text = rewritten
+            best_score = score
+            best_pred = pred
+
+        # If it passes as human, stop early
+        if score >= THRESHOLD:
+            log.info(f"Rewrite passed on attempt {attempt}")
+            return RewriteResponse(
+                original_score=round(original_score, 4),
+                original_prediction=original_pred,
+                rewritten_text=rewritten,
+                rewritten_score=round(score, 4),
+                rewritten_prediction=pred,
+                attempts=attempt,
+                success=True,
+            )
+
+    # Return best attempt even if it didn't pass
+    return RewriteResponse(
+        original_score=round(original_score, 4),
+        original_prediction=original_pred,
+        rewritten_text=best_text,
+        rewritten_score=round(best_score, 4),
+        rewritten_prediction=best_pred,
+        attempts=REWRITE_MAX_ATTEMPTS,
+        success=best_score >= THRESHOLD,
+    )
 
 
 @app.get("/", response_class=HTMLResponse)
